@@ -1,22 +1,20 @@
 use atrium_api::types::string::AtIdentifier;
-use atrium_api::types::LimitedNonZeroU8;
 use clap::Parser;
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::u32;
 
 #[derive(Parser, Debug)]
 pub enum Command {
     /// Login (Create an authentication session).
     Login(LoginArgs),
     /// Get a view of an actor's home timeline.
-    GetTimeline(TimelineArgs),
+    GetTimeline(GetTimelineArgs),
     /// Get a view of an actor's feed.
-    GetAuthorFeed(ActorArgs),
+    GetAuthorFeed(GetAuthorFeedArgs),
     /// Get a list of likes for a given post.
-    GetLikes(UriArgs),
+    GetLikes(GetCidUriArgs),
     /// Get a list of reposts for a given post.
-    GetRepostedBy(UriArgs),
+    GetRepostedBy(GetCidUriArgs),
     /// Get a list of feeds created by an actor.
     GetActorFeeds(ActorArgs),
     /// Get a view of a hydrated feed.
@@ -34,7 +32,7 @@ pub enum Command {
     /// Get detailed profile view of an actor.
     GetProfile(ActorArgs),
     /// Get a list of notifications.
-    ListNotifications,
+    ListNotifications(ListNotificationsArgs),
     /// Create a new post.
     CreatePost(CreatePostArgs),
     /// Delete a post.
@@ -55,20 +53,49 @@ pub struct LoginArgs {
 }
 
 #[derive(Parser, Debug)]
-pub struct TimelineArgs {
-    /// Use environment variables BSKYUSERNAME and BSKYPASSWORD for login credentials
+pub struct GetTimelineArgs {
     #[arg(long, default_value_t = String::from("reverse-chronological"))]
     pub(crate) algorithm: String,
-    /// Handle or other identifier supported by the server for the authenticating user.
     #[arg(long)]
     pub(crate) cursor: Option<String>,
-    /// Password
     #[arg(long, default_value_t = 10)]
     pub(crate) limit: u8,
 }
 
 #[derive(Parser, Debug)]
+pub struct GetAuthorFeedArgs {
+    /// Actor's handle or did
+    #[arg(short, long, value_parser)]
+    pub(crate) actor: Option<AtIdentifier>,
+    #[arg(long)]
+    pub(crate) cursor: Option<String>,
+
+    #[arg(long)]
+    pub(crate) filter: Option<String>,
+    #[arg(long, default_value_t = 10)]
+    pub(crate) limit: u8,
+}
+
+#[derive(Parser, Debug)]
+pub struct GetCidUriArgs {
+    /// Actor's handle or did
+    /// atrium_api::types::string::Cid
+    #[arg(short, long, value_parser)]
+    pub(crate) cid: Option<atrium_api::types::string::Cid>,
+    #[arg(long)]
+    pub(crate) cursor: Option<String>,
+    #[arg(long, default_value_t = 10)]
+    pub(crate) limit: u8,
+    #[arg(short, long, value_parser)]
+    pub(crate) uri: AtUri,
+}
+
+#[derive(Parser, Debug)]
 pub struct ActorArgs {
+    #[arg(long)]
+    pub(crate) cursor: Option<String>,
+    #[arg(long, default_value_t = 10)]
+    pub(crate) limit: u8,
     /// Actor's handle or did
     #[arg(short, long, value_parser)]
     pub(crate) actor: Option<AtIdentifier>,
@@ -76,9 +103,25 @@ pub struct ActorArgs {
 
 #[derive(Parser, Debug)]
 pub struct UriArgs {
+    #[arg(long)]
+    pub(crate) cursor: Option<String>,
+    #[arg(long, default_value_t = 10)]
+    pub(crate) limit: u8,
     /// Record's URI
     #[arg(short, long, value_parser)]
     pub(crate) uri: AtUri,
+}
+
+#[derive(Parser, Debug)]
+pub struct ListNotificationsArgs {
+    #[arg(long)]
+    pub(crate) cursor: Option<String>,
+    #[arg(long, default_value_t = 10)]
+    pub(crate) limit: u8,
+    /// Record's URI
+    // TODO: CHECK the seen_at since it is a string format datetime
+    #[arg(short, long, value_parser)]
+    pub(crate) seen_at: atrium_api::types::string::Datetime,
 }
 
 #[derive(Parser, Debug)]

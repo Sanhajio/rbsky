@@ -1,6 +1,5 @@
 use clap::Parser;
 use env_logger;
-use log::info;
 use rbsky::runner::Runner;
 use std::fmt::Debug;
 
