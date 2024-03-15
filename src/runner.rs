@@ -26,6 +26,7 @@ pub struct Runner {
     handle: Option<Handle>,
 }
 
+// TODO: split Runner and run
 impl Runner {
     pub async fn new(pds_host: String, debug: bool) -> Result<Self> {
         let config_dir = dirs::config_dir()
@@ -416,78 +417,5 @@ impl Runner {
         let rkey = args.uri.rkey;
         info!("Successfully deleted post: {:?}, res: {:?}", rkey, res);
         Ok(())
-    }
-
-    pub async fn run(&self, command: Command) -> Result<(), anyhow::Error> {
-        match command {
-            Command::Login(args) => self._login(args).await,
-            Command::GetTimeline(args) => {
-                let res = self._get_timeline(args).await;
-                info!("{:?}", res);
-                Ok(())
-            }
-            Command::GetAuthorFeed(args) => {
-                let res = self._get_author_feed(args).await;
-                info!("{:?}", res);
-                Ok(())
-            }
-            Command::GetLikes(args) => {
-                let res = self._get_likes(args).await;
-                info!("{:?}", res);
-                Ok(())
-            }
-            Command::GetRepostedBy(args) => {
-                let res = self._get_reposted_by(args).await;
-                info!("{:?}", res);
-                Ok(())
-            }
-            Command::GetActorFeeds(args) => {
-                let res = self._get_actor_feed(args).await;
-                info!("{:?}", res);
-                Ok(())
-            }
-            Command::GetFeed(args) => {
-                let res = self._get_feed(args).await;
-                info!("{:?}", res);
-                Ok(())
-            }
-            Command::GetListFeed(args) => {
-                let res = self._get_list_feed(args).await;
-                info!("{:?}", res);
-                Ok(())
-            }
-            Command::GetFollows(args) => {
-                let res = self._get_follows(args).await;
-                info!("{:?}", res);
-                Ok(())
-            }
-            Command::GetFollowers(args) => {
-                let res = self._get_followers(args).await;
-                info!("{:?}", res);
-                Ok(())
-            }
-            Command::GetLists(args) => {
-                let res = self._get_lists(args).await;
-                info!("{:?}", res);
-                Ok(())
-            }
-            Command::GetList(args) => {
-                let res = self._get_list(args).await;
-                info!("{:?}", res);
-                Ok(())
-            }
-            Command::GetProfile(args) => {
-                let res = self._get_profile(args).await;
-                info!("{:?}", res);
-                Ok(())
-            }
-            Command::ListNotifications(args) => {
-                let res = self._list_notifications(args).await;
-                info!("{:?}", res);
-                Ok(())
-            }
-            Command::CreatePost(args) => self._create_post(args).await,
-            Command::DeletePost(args) => self._delete_post(args).await,
-        }
     }
 }

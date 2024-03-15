@@ -55,11 +55,11 @@ pub struct LoginArgs {
 #[derive(Parser, Debug)]
 pub struct GetTimelineArgs {
     #[arg(long, default_value_t = String::from("reverse-chronological"))]
-    pub(crate) algorithm: String,
+    pub algorithm: String,
     #[arg(long)]
-    pub(crate) cursor: Option<String>,
+    pub cursor: Option<String>,
     #[arg(long, default_value_t = 10)]
-    pub(crate) limit: u8,
+    pub limit: u8,
 }
 
 #[derive(Parser, Debug)]

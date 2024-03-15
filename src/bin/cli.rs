@@ -1,6 +1,7 @@
 use clap::Parser;
 use env_logger;
-use rbsky::runner::Runner;
+use log::info;
+use rbsky::{commands::Command, runner::Runner};
 use std::fmt::Debug;
 
 #[derive(Parser, Debug)]
@@ -19,11 +20,81 @@ struct Args {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), anyhow::Error> {
     env_logger::init();
     let args = Args::parse();
-    Ok(Runner::new(args.pds_host, args.debug)
-        .await?
-        .run(args.command)
-        .await?)
+    let runner = Runner::new(args.pds_host, args.debug).await?;
+
+    let command = args.command;
+
+    match command {
+        Command::Login(args) => runner._login(args).await,
+        Command::GetTimeline(args) => {
+            let res = runner._get_timeline(args).await;
+            info!("{:?}", res);
+            Ok(())
+        }
+        Command::GetAuthorFeed(args) => {
+            let res = runner._get_author_feed(args).await;
+            info!("{:?}", res);
+            Ok(())
+        }
+        Command::GetLikes(args) => {
+            let res = runner._get_likes(args).await;
+            info!("{:?}", res);
+            Ok(())
+        }
+        Command::GetRepostedBy(args) => {
+            let res = runner._get_reposted_by(args).await;
+            info!("{:?}", res);
+            Ok(())
+        }
+        Command::GetActorFeeds(args) => {
+            let res = runner._get_actor_feed(args).await;
+            info!("{:?}", res);
+            Ok(())
+        }
+        Command::GetFeed(args) => {
+            let res = runner._get_feed(args).await;
+            info!("{:?}", res);
+            Ok(())
+        }
+        Command::GetListFeed(args) => {
+            let res = runner._get_list_feed(args).await;
+            info!("{:?}", res);
+            Ok(())
+        }
+        Command::GetFollows(args) => {
+            let res = runner._get_follows(args).await;
+            info!("{:?}", res);
+            Ok(())
+        }
+        Command::GetFollowers(args) => {
+            let res = runner._get_followers(args).await;
+            info!("{:?}", res);
+            Ok(())
+        }
+        Command::GetLists(args) => {
+            let res = runner._get_lists(args).await;
+            info!("{:?}", res);
+            Ok(())
+        }
+        Command::GetList(args) => {
+            let res = runner._get_list(args).await;
+            info!("{:?}", res);
+            Ok(())
+        }
+        Command::GetProfile(args) => {
+            let res = runner._get_profile(args).await;
+            info!("{:?}", res);
+            Ok(())
+        }
+        Command::ListNotifications(args) => {
+            let res = runner._list_notifications(args).await;
+            info!("{:?}", res);
+            Ok(())
+        }
+        Command::CreatePost(args) => runner._create_post(args).await,
+        Command::DeletePost(args) => runner._delete_post(args).await,
+    }
 }
