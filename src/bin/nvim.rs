@@ -20,15 +20,13 @@ async fn main() -> Result<(), anyhow::Error> {
             .size(1 * 100)
             .roll_count(10)
             .output_file()
-            .output_console()
             .build();
         let _ = simple_log::new(config);
-    } else {
-        env_logger::init();
     }
     info!("Logger Initialized");
     let db = SurrealDB::new().await?;
     let mut event_handler = EventHandler::new(db)?;
     event_handler.recv().await?;
+    info!("event_handler, done!");
     Ok(())
 }
