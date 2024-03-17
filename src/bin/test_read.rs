@@ -21,15 +21,7 @@ async fn main() -> Result<(), anyhow::Error> {
     env_logger::init();
     let args = Args::parse();
     let runner = Runner::new(args.pds_host, args.debug).await?;
-    let db = SurrealDB::new().await?;
-    let timeline: atrium_api::app::bsky::feed::get_timeline::Output = runner
-        ._get_timeline(GetTimelineArgs {
-            algorithm: String::from("reverse-chronological"),
-            cursor: None,
-            limit: 10,
-        })
-        .await?;
-    db.store_timeline(timeline, String::from("default")).await?;
+
     let cached_feed: Vec<FeedViewPost> = db.read_timeline(String::from("default")).await?;
     trace!("Reading the data: {:?}", cached_feed);
     Ok(())

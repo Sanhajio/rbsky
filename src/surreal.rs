@@ -1,6 +1,9 @@
 use anyhow::{Context, Result};
 use atrium_api::app::bsky::feed;
-use log::{trace, warn};
+use atrium_api::app::bsky::feed::defs::{FeedViewPost, PostView};
+use log::{error, info, trace, warn};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::path::PathBuf;
 use surrealdb::engine::local::{Db, RocksDb};
 use surrealdb::Surreal;
@@ -9,6 +12,12 @@ use tokio::fs::create_dir_all;
 pub struct SurrealDB {
     db: Surreal<Db>,
     path: PathBuf,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct TimelineCursor {
+    cursor: String,
+    timeline: String,
 }
 
 // TODO: maybe change this to BSKYDB
@@ -25,21 +34,54 @@ impl SurrealDB {
 
     pub async fn store_timeline(
         &self,
-        timeline: feed::get_timeline::Output,
+        timeline_data: feed::get_timeline::Output,
+        timeline_name: String,
     ) -> Result<(), anyhow::Error> {
         let _ = self.db.use_ns("bsky").use_db("timeline").await;
-        let feed: Vec<feed::defs::FeedViewPost> = timeline.feed;
-        let cursor: Option<String> = timeline.cursor;
-        let created: Vec<feed::defs::FeedViewPost> =
-            self.db.create("default").content(feed).await?;
-        trace!("Inserted in DB: {:?}", created);
+        let feed: Vec<feed::defs::FeedViewPost> = timeline_data.feed;
+        info!(
+            "Inserting into {:?} timeline Db: {:?}",
+            timeline_name,
+            feed.len()
+        );
+
+        for f in feed {
+            let fj: Value = serde_json::to_value(f)?.clone();
+            info!("Inserting into {:?} timeline Db: {:?}", timeline_name, fj);
+
+            let _created: Vec<Value> = self.db.create("default").content(fj).await?;
+        }
+
+        let cursor: Option<String> = timeline_data.cursor;
         match cursor {
             Some(cursor) => {
-                let created: Vec<String> = self.db.create("cursor").content(cursor).await?;
+                trace!("Inserting: {:?}", cursor);
+                let created: Vec<TimelineCursor> = self
+                    .db
+                    .create("cursor")
+                    .content(TimelineCursor {
+                        cursor: String::from(cursor),
+                        timeline: timeline_name,
+                    })
+                    .await?;
                 trace!("Inserted in DB: {:?}", created);
             }
             None => warn!("cursor is none"),
         }
         Ok(())
+    }
+
+    pub async fn read_timeline(
+        &self,
+        timeline_name: String,
+    ) -> Result<Vec<feed::defs::FeedViewPost>, anyhow::Error> {
+        let _ = self.db.use_ns("bsky").use_db("timeline").await;
+        let feed: Vec<feed::defs::FeedViewPost> = self.db.select(timeline_name.clone()).await?;
+        info!(
+            "Reading into {:?} timeline Db: {:?}",
+            timeline_name,
+            feed.len()
+        );
+        Ok(feed)
     }
 }
