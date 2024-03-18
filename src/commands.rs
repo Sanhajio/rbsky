@@ -43,13 +43,13 @@ pub enum Command {
 pub struct LoginArgs {
     /// Use environment variables BSKYUSERNAME and BSKYPASSWORD for login credentials
     #[arg(long, default_value_t = false)]
-    pub(crate) from_env: bool,
+    pub from_env: bool,
     /// Handle or other identifier supported by the server for the authenticating user.
     #[arg(short, long)]
-    pub(crate) identifier: Option<String>,
+    pub identifier: Option<String>,
     /// Password
     #[arg(short, long)]
-    pub(crate) password: Option<String>,
+    pub password: Option<String>,
 }
 
 #[derive(Parser, Debug)]

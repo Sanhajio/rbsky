@@ -46,8 +46,6 @@ dirs = "5.0.1"
 cid = "0.11.1"
 libipld-core = "0.16.0"
 serde_ipld_dagcbor = "0.4.2"
-
-# Parsing and validation
 chrono = "0.4"
 langtag = "0.3"
 regex = "1"

@@ -1,9 +1,20 @@
 use atrium_api::app::bsky::feed::defs::FeedViewPost;
 use clap::Parser;
 use env_logger;
-use log::{info, trace};
+use log::trace;
 use rbsky::{commands::GetTimelineArgs, runner::Runner, surreal::SurrealDB};
 use std::fmt::Debug;
+
+#[derive(Parser, Debug)]
+#[command(author, version, about)]
+struct NvimDaemonArgs {
+    #[arg(short, long, default_value = "https://bsky.social")]
+    pds_host: String,
+
+    /// Debug print
+    #[arg(short, long, default_value_t = false)]
+    debug: bool,
+}
 
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
