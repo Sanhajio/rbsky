@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use atrium_api::app::bsky::feed::defs::FeedViewPost;
 use futures::lock::Mutex;
-use log::trace;
-use neovim_lib::{neovim_api::Buffer, Neovim, NeovimApi, NeovimApiAsync, Session};
+use log::{error, trace};
+use neovim_lib::{Neovim, RequestHandler, Session};
 
 use crate::surreal::SurrealDB;
 
@@ -14,6 +14,19 @@ enum Messages {
     Like,
     UnLike,
     Unknown(String),
+}
+
+pub struct ReadHandler;
+
+impl RequestHandler for ReadHandler {
+    fn handle_request(
+        &mut self,
+        name: &str,
+        args: Vec<neovim_lib::Value>,
+    ) -> Result<neovim_lib::Value, neovim_lib::Value> {
+        trace!("Received name: {:?}, args: {:?}", name, args);
+        Ok(neovim_lib::Value::from(""))
+    }
 }
 
 pub struct EventHandler {
@@ -32,40 +45,23 @@ impl EventHandler {
     // TODO: add args to the recv function, add timeline, which timeline should I read
     // Add this in the setup of the binary adding clap
     pub async fn recv(&mut self) -> Result<(), anyhow::Error> {
-        let receiver = self.nvim.session.start_event_loop_channel();
-        let mut neosky_buffer: Option<Buffer> = None;
-        let buffers: Vec<Buffer> = self.nvim.list_bufs()?;
-        for buf in buffers {
-            let name = buf.get_name(&mut self.nvim)?;
-            if name.ends_with("neosky.social") {
-                neosky_buffer = Some(buf);
-                break;
-            }
-        }
-        if neosky_buffer.is_none() {
-            self.nvim.command("enew")?;
-            self.nvim.command("file neosky.social")?;
-            neosky_buffer = Some(self.nvim.get_current_buf()?)
-        }
+        let receiver = self
+            .nvim
+            .session
+            .start_event_loop_channel_handler(ReadHandler);
+        trace!("{:?} receiver values", receiver);
         for (event, values) in receiver {
             trace!("Received event: {:?}, values: {:?}", event, values);
+            /*
             match Messages::from(event) {
                 Messages::Read => {
                     let db_lock = self.db.lock().await;
                     let cached_feed: Vec<FeedViewPost> =
                         db_lock.read_timeline(String::from("default")).await?;
-                    trace!("Reading the data: {:?}", cached_feed);
+                    trace!("Reading the data: {:?}", cached_feed.first());
                     drop(db_lock);
-                    let feed_json = serde_json::to_string(&cached_feed)?;
-
-                    if let Some(ref buffer) = neosky_buffer {
-                        self.nvim.set_current_buf(&buffer)?;
-                        // TODO: Check if this is a global or a local variable
-                        self.nvim.set_var(
-                            r#"neosky_feed"#,
-                            neovim_lib::Value::String(feed_json.into()),
-                        )?;
-                    }
+                    let feed_json = serde_json::to_string(&cached_feed.first())?;
+                    println!("{}", feed_json)
                 }
                 Messages::Post => {
                     // TODO:: Add an nui or any other ui plugin to add a Post like interface
@@ -83,6 +79,7 @@ impl EventHandler {
                     //
                 }
             }
+            */
         }
         Ok(())
     }
