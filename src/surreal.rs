@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use atrium_api::app::bsky::feed;
-use atrium_api::app::bsky::feed::defs::{FeedViewPost, PostView};
+use atrium_api::records::Record;
 use chrono::{DateTime, ParseError, Utc};
 use log::{error, info, trace, warn};
 use serde::{Deserialize, Serialize};
@@ -54,6 +54,28 @@ impl Ord for TimelineCursor {
     fn cmp(&self, other: &Self) -> Ordering {
         self.partial_cmp(other).unwrap_or(Ordering::Equal)
     }
+}
+
+fn compare_records_by_created_at(a: &Record, b: &Record) -> Ordering {
+    let created_at_a = match a {
+        Record::AppBskyFeedPost(post) => &post.created_at,
+        _ => return Ordering::Equal, // Handle other cases if needed
+    };
+
+    let created_at_b = match b {
+        Record::AppBskyFeedPost(post) => &post.created_at,
+        _ => return Ordering::Equal, // Handle other cases if needed
+    };
+
+    created_at_b.cmp(&created_at_a) // Reverse order to sort in descending order
+}
+
+fn sort_timeline_by_created_at(timeline: &mut Vec<feed::defs::FeedViewPost>) {
+    timeline.sort_by(|a, b| {
+        let record_a = &a.post.record;
+        let record_b = &b.post.record;
+        compare_records_by_created_at(record_a, record_b)
+    });
 }
 
 // TODO: maybe change this to BSKYDB
@@ -112,12 +134,16 @@ impl SurrealDB {
         timeline_name: String,
     ) -> Result<Vec<feed::defs::FeedViewPost>, anyhow::Error> {
         let _ = self.db.use_ns("bsky").use_db("timeline").await;
-        let timeline: Vec<feed::defs::FeedViewPost> = self.db.select(timeline_name.clone()).await?;
+        let mut timeline: Vec<feed::defs::FeedViewPost> =
+            self.db.select(timeline_name.clone()).await?;
+        sort_timeline_by_created_at(&mut timeline);
+
         info!(
             "Reading into {:?} timeline Db: {:?}",
             timeline_name,
             timeline.len()
         );
+
         Ok(timeline)
     }
 

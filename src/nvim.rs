@@ -138,6 +138,7 @@ impl EventHandler {
         &mut self,
         bsky_request_handler: BskyRequestHandler,
     ) -> Result<(), anyhow::Error> {
+        let feed = Arc::clone(&bsky_request_handler.feed);
         let receiver = self
             .nvim
             .session
@@ -153,7 +154,7 @@ impl EventHandler {
                 }
                 Messages::Update => {
                     self.update_timeline().await?;
-                    self.update_feed().await?;
+                    self.update_feed(feed.clone()).await?;
                 }
                 Messages::RePost => {
                     error!("Uninmplemented");
@@ -172,11 +173,15 @@ impl EventHandler {
         Ok(())
     }
 
-    pub async fn update_feed(&mut self) -> Result<(), anyhow::Error> {
+    pub async fn update_feed(
+        &mut self,
+        feed: Arc<std::sync::Mutex<Option<Vec<FeedViewPost>>>>,
+    ) -> Result<(), anyhow::Error> {
         trace!("updating read handler feed");
         let db_lock = self.db.lock().await;
         let cached_feed: Vec<FeedViewPost> = db_lock.read_timeline(String::from("default")).await?;
         trace!("reading the data: {:?}", cached_feed);
+        let locked = feed.lock();
         match locked {
             Ok(mut l) => {
                 *l = Some(cached_feed);
