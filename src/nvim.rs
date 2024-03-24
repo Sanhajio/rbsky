@@ -9,6 +9,7 @@ use crate::surreal::SurrealDB;
 
 enum Messages {
     Read,
+    Update,
     Post,
     RePost,
     Like,
@@ -69,6 +70,11 @@ impl RequestHandler for BskyRequestHandler {
                 error!("Uninmplemented");
                 return Ok(neovim_lib::Value::from("Unimplemented"));
             }
+            Messages::Update => {
+                error!("Uninmplemented");
+                return Ok(neovim_lib::Value::from("Unimplemented"));
+            }
+
             Messages::RePost => {
                 error!("Uninmplemented");
                 return Ok(neovim_lib::Value::from("Unimplemented"));
@@ -146,6 +152,7 @@ impl From<&str> for Messages {
         match event {
             "read" => Messages::Read,
             "post" => Messages::Post,
+            "update" => Messages::Update,
             "repost" => Messages::RePost,
             "like" => Messages::Like,
             "unlike" => Messages::UnLike,
