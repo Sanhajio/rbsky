@@ -36,7 +36,7 @@ impl RequestHandler for BskyRequestHandler {
                         let opt = l.clone();
                         match opt {
                             Some(f) => {
-                                let feed_json = serde_json::to_string(&f[0..2]);
+                                let feed_json = serde_json::to_string(&f);
                                 match feed_json {
                                     Ok(s) => {
                                         info!("request_handler: lock acquired");
