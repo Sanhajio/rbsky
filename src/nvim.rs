@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
+use crate::surreal::SurrealDB;
+use crate::{commands::GetTimelineArgs, runner::Runner};
 use atrium_api::app::bsky::feed::defs::FeedViewPost;
 use futures::lock::Mutex;
 use log::{error, info, trace};
 use neovim_lib::{Neovim, RequestHandler, Session};
-
-use crate::surreal::SurrealDB;
+use tokio::time::{self, Duration};
 
 enum Messages {
     Read,
@@ -120,14 +121,15 @@ impl BskyRequestHandler {
 pub struct EventHandler {
     pub nvim: Neovim,
     pub db: Arc<Mutex<SurrealDB>>,
+    pub runner: Runner,
 }
 
 impl EventHandler {
-    pub fn new(db: Arc<Mutex<SurrealDB>>) -> Result<EventHandler, anyhow::Error> {
+    pub fn new(db: Arc<Mutex<SurrealDB>>, runner: Runner) -> Result<EventHandler, anyhow::Error> {
         let session = Session::new_parent()?;
         let nvim = Neovim::new(session);
         let db = db;
-        Ok(EventHandler { nvim, db })
+        Ok(EventHandler { nvim, db, runner })
     }
 
     // TODO: add args to the recv function, add timeline, which timeline should I read
@@ -142,14 +144,134 @@ impl EventHandler {
             .start_event_loop_channel_handler(bsky_request_handler);
         for (event, values) in receiver {
             trace!("Received event: {:?}, values: {:?}", event, values);
+            match Messages::from(event) {
+                Messages::Read => {
+                    error!("Uninmplemented");
+                }
+                Messages::Post => {
+                    error!("Uninmplemented");
+                }
+                Messages::Update => {
+                    self.update_timeline().await?;
+                    self.update_feed().await?;
+                }
+                Messages::RePost => {
+                    error!("Uninmplemented");
+                }
+                Messages::Like => {
+                    error!("Uninmplemented");
+                }
+                Messages::UnLike => {
+                    error!("Uninmplemented");
+                }
+                Messages::Unknown(event) => {
+                    error!("Uninmplemented {}", event);
+                }
+            }
         }
         Ok(())
+    }
+
+    pub async fn update_feed(&mut self) -> Result<(), anyhow::Error> {
+        trace!("updating read handler feed");
+        let db_lock = self.db.lock().await;
+        let cached_feed: Vec<FeedViewPost> = db_lock.read_timeline(String::from("default")).await?;
+        trace!("reading the data: {:?}", cached_feed);
+        match locked {
+            Ok(mut l) => {
+                *l = Some(cached_feed);
+                drop(l);
+                return Ok(());
+            }
+            Err(e) => {
+                error!("error while fetching data {:?}", e);
+            }
+        };
+        drop(db_lock);
+        Ok(())
+    }
+
+    pub async fn update_timeline(&mut self) -> Result<(), anyhow::Error> {
+        let db_lock = self.db.lock().await;
+        let cursor_res = db_lock.get_latest_cursor(String::from("default")).await;
+        let mut cursor: Option<String> = None;
+        match cursor_res {
+            Ok(res) => {
+                info!("found cursor at: {:?}", res);
+                cursor = res;
+            }
+            Err(e) => error!("error while fetching cursor data {:?}", e),
+        }
+        let timeline = self
+            .runner
+            ._get_timeline(GetTimelineArgs {
+                algorithm: String::from("reverse-chronological"),
+                cursor,
+                limit: 10,
+            })
+            .await;
+        match timeline {
+            Ok(data) => {
+                trace!("read timeline {:?}", data);
+                let write_res = db_lock
+                    .store_timeline(data.clone(), String::from("default"))
+                    .await;
+                match write_res {
+                    Ok(res) => info!("data written successfully: {:?}", res),
+                    Err(e) => error!("error while fetching data {:?}", e),
+                }
+            }
+            Err(e) => {
+                error!("error while fetching data {:?}", e);
+            }
+        }
+        drop(db_lock);
+        Ok(())
+    }
+
+    pub async fn refresh_timeline(
+        &mut self,
+        task_interval: Duration,
+        nvim_feed: Arc<std::sync::Mutex<Option<Vec<FeedViewPost>>>>,
+    ) -> Result<(), anyhow::Error> {
+        let mut interval = time::interval(task_interval);
+        loop {
+            interval.tick().await;
+            trace!("executed background task");
+            self.update_timeline().await?;
+            let db_lock = self.db.lock().await;
+            let data: Vec<FeedViewPost> = db_lock.read_timeline(String::from("default")).await?;
+            let nvim_feed_lock = nvim_feed.lock();
+            match nvim_feed_lock {
+                Ok(mut l) => {
+                    info!("nvim_feed_lock Acquired Lock Updating Data");
+                    *l = Some(data.clone());
+                    info!("nvim_feed_lock Droping Lock");
+                    drop(l);
+                }
+                Err(_) => error!("Unable to aquire the lock"),
+            }
+        }
     }
 }
 
 impl From<&str> for Messages {
     fn from(event: &str) -> Self {
         match event {
+            "read" => Messages::Read,
+            "post" => Messages::Post,
+            "update" => Messages::Update,
+            "repost" => Messages::RePost,
+            "like" => Messages::Like,
+            "unlike" => Messages::UnLike,
+            _ => Messages::Unknown(event.to_string()),
+        }
+    }
+}
+
+impl From<String> for Messages {
+    fn from(event: String) -> Self {
+        match event.as_str() {
             "read" => Messages::Read,
             "post" => Messages::Post,
             "update" => Messages::Update,

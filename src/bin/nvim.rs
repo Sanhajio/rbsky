@@ -4,14 +4,14 @@ use anyhow::{Context, Result};
 use atrium_api::app::bsky::feed::defs::FeedViewPost;
 use clap::Parser;
 use futures::lock::Mutex;
-use log::{error, info, trace};
-use rbsky::commands::{GetTimelineArgs, LoginArgs};
+use log::{error, info};
+use rbsky::commands::LoginArgs;
 use rbsky::nvim::BskyRequestHandler;
 use rbsky::runner::Runner;
 use rbsky::{nvim::EventHandler, surreal::SurrealDB};
-use simple_log::{new, LogConfigBuilder};
+use simple_log::LogConfigBuilder;
 use tokio::fs::create_dir_all;
-use tokio::time::{self, Duration};
+use tokio::time::Duration;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
@@ -21,69 +21,12 @@ struct Args {
 
     #[arg(short, long, default_value_t = false)]
     debug: bool,
+
+    #[arg(short, long, default_value_t = false)]
+    auto_update: bool,
 }
 
-async fn refresh_timeline(
-    db_writer: Arc<Mutex<SurrealDB>>,
-    task_interval: Duration,
-    runner: Runner,
-    nvim_feed: Arc<std::sync::Mutex<Option<Vec<FeedViewPost>>>>,
-) -> Result<(), anyhow::Error> {
-    let mut interval = time::interval(task_interval);
-    loop {
-        interval.tick().await;
-        trace!("executed background task");
-        // : atrium_api::app::bsky::feed::get_timeline::Output
-        let db_lock = db_writer.lock().await;
-        let cursor_res = db_lock.get_latest_cursor(String::from("default")).await;
-        let mut cursor: Option<String> = None;
-        match cursor_res {
-            Ok(res) => {
-                info!("found cursor at: {:?}", res);
-                cursor = res;
-            }
-            Err(e) => error!("error while fetching cursor data {:?}", e),
-        }
-        let timeline = runner
-            ._get_timeline(GetTimelineArgs {
-                algorithm: String::from("reverse-chronological"),
-                cursor,
-                limit: 10,
-            })
-            .await;
-        match timeline {
-            Ok(data) => {
-                trace!("read timeline {:?}", data);
-                let write_res = db_lock
-                    .store_timeline(data.clone(), String::from("default"))
-                    .await;
-                match write_res {
-                    Ok(res) => info!("data written successfully: {:?}", res),
-                    Err(e) => error!("error while fetching data {:?}", e),
-                }
-                let nvim_feed_lock = nvim_feed.lock();
-                match nvim_feed_lock {
-                    Ok(mut l) => {
-                        info!("nvim_feed_lock Acquired Lock Updating Data");
-                        *l = Some(data.feed.clone());
-                        info!("nvim_feed_lock Droping Lock");
-                        drop(l);
-                    }
-                    Err(_) => error!("Unable to aquire the lock"),
-                }
-            }
-            Err(e) => {
-                error!("error while fetching data {:?}", e);
-            }
-        }
-        drop(db_lock);
-    }
-}
-
-#[tokio::main]
-async fn main() -> Result<(), anyhow::Error> {
-    // TODO:: Add a file logger for now in config dir, rbsky-nvim.log
-    // TODO:: Start a process to update the data stored in surrealdb
+async fn init() -> Result<(), anyhow::Error> {
     let config_dir =
         dirs::config_dir().with_context(|| format!("No config dir: {:?}", dirs::config_dir()))?;
     let dir = config_dir.join("bsky");
@@ -100,18 +43,44 @@ async fn main() -> Result<(), anyhow::Error> {
         let _ = simple_log::new(config);
     }
     info!("Logger Initialized");
+    Ok(())
+}
+
+async fn auto_update(
+    db: Arc<Mutex<SurrealDB>>,
+    runner: Runner,
+    nvim_feed: Arc<std::sync::Mutex<Option<Vec<FeedViewPost>>>>,
+) -> Result<(), anyhow::Error> {
+    let task_interval = Duration::from_secs(30);
+    let mut event_handler_bg = EventHandler::new(db, runner)?;
+    tokio::spawn(async move {
+        if let Err(e) = event_handler_bg
+            .refresh_timeline(task_interval, nvim_feed)
+            .await
+        {
+            error!("Error in refresh_timeline: {:?}", e);
+        }
+    });
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() -> Result<(), anyhow::Error> {
+    init().await?;
     let db = SurrealDB::new().await?;
     let nvim_feed_reader = Arc::new(std::sync::Mutex::new(None));
     let nvim_feed_writer = nvim_feed_reader.clone();
+
+    let db_reader = Arc::new(Mutex::new(db));
+    let db_writer = db_reader.clone();
     let bsky_request_handler = BskyRequestHandler {
         feed: nvim_feed_reader,
     };
-    let db_reader = Arc::new(Mutex::new(db));
-    let db_writer = db_reader.clone();
     let args = Args::parse();
 
-    let task_interval = Duration::from_secs(30);
-    let runner = Runner::new(args.pds_host, args.debug).await?;
+    let pds_host = args.pds_host;
+    let runner = Runner::new(pds_host.clone(), args.debug).await?;
+    let runner_bg = Runner::new(pds_host.clone(), args.debug).await?;
     runner
         ._login(LoginArgs {
             from_env: true,
@@ -120,12 +89,10 @@ async fn main() -> Result<(), anyhow::Error> {
         })
         .await?;
 
-    tokio::spawn(async move {
-        if let Err(e) = refresh_timeline(db_writer, task_interval, runner, nvim_feed_writer).await {
-            error!("Error in refresh_timeline: {:?}", e);
-        }
-    });
-    let mut event_handler = EventHandler::new(db_reader)?;
+    let mut event_handler = EventHandler::new(db_reader, runner)?;
+    if args.auto_update {
+        let _ = auto_update(db_writer, runner_bg, nvim_feed_writer).await;
+    }
     event_handler.recv(bsky_request_handler).await?;
     info!("event_handler, done!");
     Ok(())
