@@ -1,3 +1,4 @@
+use atrium_api::app::bsky::feed;
 use clap::Parser;
 use env_logger;
 use log::info;
@@ -30,68 +31,115 @@ async fn main() -> Result<(), anyhow::Error> {
     match command {
         Command::Login(args) => runner._login(args).await,
         Command::GetTimeline(args) => {
-            let res = runner._get_timeline(args).await;
-            info!("{:?}", res);
+            let res: feed::get_timeline::Output = runner._get_timeline(args).await?;
+            let json = serde_json::to_string_pretty(&res);
+            if let Ok(d) = json {
+                println!("{}", d);
+            }
             Ok(())
         }
         Command::GetAuthorFeed(args) => {
-            let res = runner._get_author_feed(args).await;
-            info!("{:?}", res);
+            let res: feed::get_author_feed::Output = runner._get_author_feed(args).await?;
+            let json = serde_json::to_string_pretty(&res);
+            if let Ok(d) = json {
+                println!("{}", d);
+            }
             Ok(())
         }
         Command::GetLikes(args) => {
-            let res = runner._get_likes(args).await;
-            info!("{:?}", res);
+            let res = runner._get_likes(args).await?;
+            let json = serde_json::to_string_pretty(&res);
+            if let Ok(d) = json {
+                println!("{}", d);
+            }
+            Ok(())
+        }
+        Command::GetPost(args) => {
+            let res = runner._get_post(args).await?;
+            let json = serde_json::to_string_pretty(&res);
+            if let Ok(d) = json {
+                println!("{}", d);
+            }
             Ok(())
         }
         Command::GetRepostedBy(args) => {
-            let res = runner._get_reposted_by(args).await;
-            info!("{:?}", res);
+            let res = runner._get_reposted_by(args).await?;
+            let json = serde_json::to_string_pretty(&res);
+            if let Ok(d) = json {
+                println!("{}", d);
+            }
             Ok(())
         }
         Command::GetActorFeeds(args) => {
-            let res = runner._get_actor_feed(args).await;
-            info!("{:?}", res);
+            let res = runner._get_actor_feed(args).await?;
+            let json = serde_json::to_string_pretty(&res);
+            if let Ok(d) = json {
+                println!("{}", d);
+            }
             Ok(())
         }
         Command::GetFeed(args) => {
-            let res = runner._get_feed(args).await;
-            info!("{:?}", res);
+            let res = runner._get_feed(args).await?;
+            let json = serde_json::to_string_pretty(&res);
+            if let Ok(d) = json {
+                println!("{}", d);
+            }
             Ok(())
         }
         Command::GetListFeed(args) => {
-            let res = runner._get_list_feed(args).await;
-            info!("{:?}", res);
+            let res = runner._get_list_feed(args).await?;
+            let json = serde_json::to_string_pretty(&res);
+            if let Ok(d) = json {
+                println!("{}", d);
+            }
             Ok(())
         }
         Command::GetFollows(args) => {
-            let res = runner._get_follows(args).await;
-            info!("{:?}", res);
+            let res = runner._get_follows(args).await?;
+            let json = serde_json::to_string_pretty(&res);
+            if let Ok(d) = json {
+                println!("{}", d);
+            }
             Ok(())
         }
         Command::GetFollowers(args) => {
-            let res = runner._get_followers(args).await;
-            info!("{:?}", res);
+            let res = runner._get_followers(args).await?;
+            let json = serde_json::to_string_pretty(&res);
+            if let Ok(d) = json {
+                println!("{}", d);
+            }
             Ok(())
         }
         Command::GetLists(args) => {
-            let res = runner._get_lists(args).await;
-            info!("{:?}", res);
+            let res = runner._get_lists(args).await?;
+            let json = serde_json::to_string_pretty(&res);
+            if let Ok(d) = json {
+                println!("{}", d);
+            }
             Ok(())
         }
         Command::GetList(args) => {
-            let res = runner._get_list(args).await;
-            info!("{:?}", res);
+            let res = runner._get_list(args).await?;
+            let json = serde_json::to_string_pretty(&res);
+            if let Ok(d) = json {
+                println!("{}", d);
+            }
             Ok(())
         }
         Command::GetProfile(args) => {
-            let res = runner._get_profile(args).await;
-            info!("{:?}", res);
+            let res = runner._get_profile(args).await?;
+            let json = serde_json::to_string_pretty(&res);
+            if let Ok(d) = json {
+                println!("{}", d);
+            }
             Ok(())
         }
         Command::ListNotifications(args) => {
-            let res = runner._list_notifications(args).await;
-            info!("{:?}", res);
+            let res = runner._list_notifications(args).await?;
+            let json = serde_json::to_string_pretty(&res);
+            if let Ok(d) = json {
+                println!("{}", d);
+            }
             Ok(())
         }
         Command::CreatePost(args) => runner._create_post(args).await,

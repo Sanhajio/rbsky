@@ -11,6 +11,8 @@ use surrealdb::engine::local::{Db, RocksDb};
 use surrealdb::Surreal;
 use tokio::fs::create_dir_all;
 
+use crate::runner::Runner;
+
 #[derive(Clone)]
 pub struct SurrealDB {
     db: Surreal<Db>,
@@ -88,6 +90,17 @@ impl SurrealDB {
         let path = dir.join("bsky.db");
         let db = Surreal::new::<RocksDb>(path.clone()).await?;
         Ok(SurrealDB { db, path })
+    }
+
+    pub async fn store_author(
+        &self,
+        author: atrium_api::app::bsky::actor::defs::ProfileViewDetailed,
+    ) -> Result<(), anyhow::Error> {
+        let _ = self.db.use_ns("bsky").use_db("authors").await;
+        let did: String = author.did.to_string().clone();
+        let _created: Option<atrium_api::app::bsky::actor::defs::ProfileViewDetailed> =
+            self.db.update(("author", did)).content(author).await?;
+        Ok(())
     }
 
     pub async fn store_timeline(

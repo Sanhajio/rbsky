@@ -20,6 +20,8 @@ pub enum Command {
     /// Get a view of a hydrated feed.
     GetFeed(UriArgs),
     /// Get a view of a specified list,
+    GetPost(UriArgs),
+    /// Get a view of a specified list,
     GetListFeed(UriArgs),
     /// Get a list of who an actor follows.
     GetFollows(ActorArgs),
@@ -93,12 +95,12 @@ pub struct GetCidUriArgs {
 #[derive(Parser, Debug)]
 pub struct ActorArgs {
     #[arg(long)]
-    pub(crate) cursor: Option<String>,
+    pub cursor: Option<String>,
     #[arg(long, default_value_t = 10)]
-    pub(crate) limit: u8,
+    pub limit: u8,
     /// Actor's handle or did
     #[arg(short, long, value_parser)]
-    pub(crate) actor: Option<AtIdentifier>,
+    pub actor: Option<AtIdentifier>,
 }
 
 #[derive(Parser, Debug)]
@@ -110,6 +112,17 @@ pub struct UriArgs {
     /// Record's URI
     #[arg(short, long, value_parser)]
     pub(crate) uri: AtUri,
+}
+
+#[derive(Parser, Debug)]
+pub struct UriArgsU16 {
+    #[arg(long, default_value_t = 10)]
+    pub parent_height: u16,
+    #[arg(long, default_value_t = 10)]
+    pub depth: u16,
+    /// Record's URI
+    #[arg(short, long, value_parser)]
+    pub uri: AtUri,
 }
 
 #[derive(Parser, Debug)]
@@ -135,7 +148,7 @@ pub struct CreatePostArgs {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct AtUri {
+pub struct AtUri {
     pub(crate) did: String,
     pub(crate) collection: String,
     pub(crate) rkey: String,

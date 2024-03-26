@@ -1,6 +1,6 @@
 use crate::commands::{
     ActorArgs, Command, CreatePostArgs, GetAuthorFeedArgs, GetCidUriArgs, GetTimelineArgs,
-    ListNotificationsArgs, LoginArgs, UriArgs,
+    ListNotificationsArgs, LoginArgs, UriArgs, UriArgsU16,
 };
 use crate::store::SimpleJsonFileSessionStore;
 use anyhow::{Context, Result};
@@ -10,7 +10,7 @@ use atrium_api::app::bsky::feed;
 use atrium_api::app::bsky::graph;
 use atrium_api::app::bsky::notification;
 use atrium_api::types::string::{AtIdentifier, Datetime, Handle};
-use atrium_api::types::LimitedNonZeroU8;
+use atrium_api::types::{LimitedNonZeroU8, LimitedU16};
 use atrium_xrpc_client::reqwest::ReqwestClient;
 use log::{error, info};
 use std::ffi::OsStr;
@@ -113,6 +113,40 @@ impl Runner {
                 algorithm: Some(args.algorithm),
                 cursor: args.cursor,
                 limit: Some(limit),
+            })
+            .await?)
+    }
+
+    pub async fn _get_post(&self, args: UriArgs) -> Result<feed::get_posts::Output, anyhow::Error> {
+        Ok(self
+            .agent
+            .api
+            .app
+            .bsky
+            .feed
+            .get_posts(atrium_api::app::bsky::feed::get_posts::Parameters {
+                uris: vec![args.uri.to_string()],
+            })
+            .await?)
+    }
+
+    pub async fn _get_post_thread(
+        &self,
+        args: UriArgsU16,
+    ) -> Result<feed::get_post_thread::Output, anyhow::Error> {
+        let parent_height: LimitedU16<1000u16> =
+            args.parent_height.try_into().expect("within limit");
+        let depth: LimitedU16<1000u16> = args.depth.try_into().expect("within limit");
+        Ok(self
+            .agent
+            .api
+            .app
+            .bsky
+            .feed
+            .get_post_thread(feed::get_post_thread::Parameters {
+                uri: args.uri.to_string(),
+                depth: Some(depth),
+                parent_height: Some(parent_height),
             })
             .await?)
     }
