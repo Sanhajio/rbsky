@@ -1,11 +1,14 @@
 use anyhow::{Context, Result};
+use atrium_api::app::bsky;
 use atrium_api::app::bsky::feed;
 use atrium_api::records::Record;
+use atrium_api::types::string::Cid;
 use chrono::{DateTime, ParseError, Utc};
 use log::{error, info, trace, warn};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use surrealdb::engine::local::{Db, RocksDb};
 use surrealdb::Surreal;
@@ -92,14 +95,133 @@ impl SurrealDB {
         Ok(SurrealDB { db, path })
     }
 
+    pub async fn store_post(
+        &self,
+        post: atrium_api::app::bsky::feed::defs::PostView,
+    ) -> Result<(), anyhow::Error> {
+        let _ = self.db.use_ns("bsky").use_db("timeline").await;
+        let cid: String = serde_json::to_string(&post.cid.clone())?
+            .trim_matches('"')
+            .to_string();
+        let did: String = post.author.did.to_string().clone();
+        // let _created: Option<atrium_api::app::bsky::feed::defs::PostView> =
+        //     self.db.update(("post", cid)).content(post).await?;
+        let sql = format!(
+            r#"UPDATE post:{} CONTENT {{
+                author: author:⟨{}⟩,
+                indexedAt: {},
+                labels: {},
+                likeCount: {},
+                record: {},
+                replyCount: {},
+                repostCount: {},
+                uri: {},
+                viewer: {},
+        }};"#,
+            cid,
+            did,
+            serde_json::to_string(&post.indexed_at)?,
+            serde_json::to_string(&post.labels)?,
+            serde_json::to_string(&post.like_count)?,
+            serde_json::to_string(&post.record)?,
+            serde_json::to_string(&post.reply_count)?,
+            serde_json::to_string(&post.repost_count)?,
+            serde_json::to_string(&post.uri)?,
+            serde_json::to_string(&post.viewer)?,
+        );
+        info!("{}", sql);
+        let _created = self.db.query(sql).await?;
+        Ok(())
+    }
+
     pub async fn store_author(
         &self,
-        author: atrium_api::app::bsky::actor::defs::ProfileViewDetailed,
+        author: atrium_api::app::bsky::actor::defs::ProfileViewBasic,
     ) -> Result<(), anyhow::Error> {
-        let _ = self.db.use_ns("bsky").use_db("authors").await;
+        let _ = self.db.use_ns("bsky").use_db("timeline").await;
         let did: String = author.did.to_string().clone();
-        let _created: Option<atrium_api::app::bsky::actor::defs::ProfileViewDetailed> =
-            self.db.update(("author", did)).content(author).await?;
+        let _created: Option<atrium_api::app::bsky::actor::defs::ProfileViewBasic> = self
+            .db
+            .update(("author", did.clone()))
+            .content(author)
+            .await?;
+        if let Some(created) = _created {
+            trace!("Inserting into author table {:?}", created);
+        } else {
+            trace!("unable to create entry {}", did.clone());
+        }
+        Ok(())
+    }
+
+    pub async fn store_post_view(
+        &self,
+        post: atrium_api::app::bsky::feed::defs::PostView,
+    ) -> Result<(), anyhow::Error> {
+        let author: bsky::actor::defs::ProfileViewBasic = post.author.clone();
+        self.store_author(author).await?;
+        self.store_post(post).await?;
+        Ok(())
+    }
+
+    pub async fn store_feed_post_view(
+        &self,
+        f: atrium_api::app::bsky::feed::defs::FeedViewPost,
+    ) -> Result<(), anyhow::Error> {
+        let cid: String = serde_json::to_string(&f.post.cid.clone())?
+            .trim_matches('"')
+            .to_string();
+        self.store_post_view(f.post).await?;
+
+        let mut cid_parent: Option<String> = None;
+        let mut cid_root: Option<String> = None;
+        if let Some(reply) = f.reply {
+            match reply.parent {
+                feed::defs::ReplyRefParentEnum::PostView(parent) => {
+                    cid_parent = Some(
+                        serde_json::to_string(&parent.cid.clone())?
+                            .trim_matches('"')
+                            .to_string(),
+                    );
+                    self.store_post_view(*parent).await?;
+                }
+                feed::defs::ReplyRefParentEnum::BlockedPost(_parent) => {}
+                feed::defs::ReplyRefParentEnum::NotFoundPost(_parent) => {}
+            }
+            match reply.root {
+                feed::defs::ReplyRefRootEnum::PostView(root) => {
+                    cid_root = Some(
+                        serde_json::to_string(&root.cid.clone())?
+                            .trim_matches('"')
+                            .to_string(),
+                    );
+                    self.store_post_view(*root).await?;
+                }
+                feed::defs::ReplyRefRootEnum::NotFoundPost(_root) => {}
+                feed::defs::ReplyRefRootEnum::BlockedPost(_root) => {}
+            }
+        }
+        if let Some(reason) = f.reason.clone() {
+            match reason {
+                feed::defs::FeedViewPostReasonEnum::ReasonRepost(reason) => {}
+            }
+        }
+        let sql = format!(
+            r#"UPDATE feed:{} CONTENT {{
+                post: post:{},
+                reply: {{
+                  parent: {},
+                  root: {},
+                }},
+                reason: {},
+        }};"#,
+            cid,
+            cid,
+            serde_json::to_string(&cid_parent)?,
+            serde_json::to_string(&cid_root)?,
+            serde_json::to_string(&f.reason)?,
+        );
+        info!("{}", sql);
+        let _created = self.db.query(sql).await?;
         Ok(())
     }
 
@@ -115,15 +237,19 @@ impl SurrealDB {
             timeline_name,
             feed.len()
         );
-
         for f in feed {
-            let fj: Value = serde_json::to_value(f)?.clone();
-            info!("Inserting into {:?} timeline Db: {:?}", timeline_name, fj);
-
-            let _created: Vec<Value> = self.db.create("default").content(fj).await?;
+            self.store_feed_post_view(f).await?;
         }
+        self.store_cursor(timeline_data.cursor, timeline_name)
+            .await?;
+        Ok(())
+    }
 
-        let cursor: Option<String> = timeline_data.cursor;
+    pub async fn store_cursor(
+        &self,
+        cursor: Option<String>,
+        timeline_name: String,
+    ) -> Result<(), anyhow::Error> {
         match cursor {
             Some(cursor) => {
                 trace!("Inserting: {:?}", cursor);

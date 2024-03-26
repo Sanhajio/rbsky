@@ -20,7 +20,7 @@ pub enum Command {
     /// Get a view of a hydrated feed.
     GetFeed(UriArgs),
     /// Get a view of a specified list,
-    GetPost(UriArgs),
+    GetPosts(UriArgs),
     /// Get a view of a specified list,
     GetListFeed(UriArgs),
     /// Get a list of who an actor follows.
@@ -112,6 +112,12 @@ pub struct UriArgs {
     /// Record's URI
     #[arg(short, long, value_parser)]
     pub(crate) uri: AtUri,
+}
+
+#[derive(Parser, Debug)]
+pub struct UriListArgs {
+    #[arg(short, long, value_parser)]
+    pub(crate) uri: Vec<String>,
 }
 
 #[derive(Parser, Debug)]

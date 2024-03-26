@@ -1,6 +1,6 @@
 use crate::commands::{
     ActorArgs, Command, CreatePostArgs, GetAuthorFeedArgs, GetCidUriArgs, GetTimelineArgs,
-    ListNotificationsArgs, LoginArgs, UriArgs, UriArgsU16,
+    ListNotificationsArgs, LoginArgs, UriArgs, UriArgsU16, UriListArgs,
 };
 use crate::store::SimpleJsonFileSessionStore;
 use anyhow::{Context, Result};
@@ -117,16 +117,17 @@ impl Runner {
             .await?)
     }
 
-    pub async fn _get_post(&self, args: UriArgs) -> Result<feed::get_posts::Output, anyhow::Error> {
+    pub async fn _get_post(
+        &self,
+        args: UriListArgs,
+    ) -> Result<feed::get_posts::Output, anyhow::Error> {
         Ok(self
             .agent
             .api
             .app
             .bsky
             .feed
-            .get_posts(atrium_api::app::bsky::feed::get_posts::Parameters {
-                uris: vec![args.uri.to_string()],
-            })
+            .get_posts(atrium_api::app::bsky::feed::get_posts::Parameters { uris: args.uri })
             .await?)
     }
 
