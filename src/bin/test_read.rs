@@ -1,28 +1,20 @@
-use atrium_api::app::bsky::feed::defs::FeedViewPost;
-use clap::Parser;
-use env_logger;
-use log::{info, trace};
-use rbsky::{commands::GetTimelineArgs, runner::Runner, surreal::SurrealDB};
-use std::fmt::Debug;
-
-#[derive(Parser, Debug)]
-#[command(author, version, about)]
-struct Args {
-    #[arg(short, long, default_value = "https://bsky.social")]
-    pds_host: String,
-
-    /// Debug print
-    #[arg(short, long, default_value_t = false)]
-    debug: bool,
-}
+use log::trace;
+use rbsky::surreal::SurrealDB;
+use simple_log::LogConfigBuilder;
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
-    env_logger::init();
-    let args = Args::parse();
-    let runner = Runner::new(args.pds_host, args.debug).await?;
+    let db = SurrealDB::new().await?;
+    let config = LogConfigBuilder::builder()
+        .path(String::from("test_read.log"))
+        .level("trace")
+        .size(1 * 100)
+        .roll_count(10)
+        .output_file()
+        .build();
+    let _ = simple_log::new(config);
 
-    let cached_feed: Vec<FeedViewPost> = db.read_timeline(String::from("default")).await?;
+    let cached_feed = db.read_timeline_raw_query(String::from("default")).await?;
     trace!("Reading the data: {:?}", cached_feed);
     Ok(())
 }

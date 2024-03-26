@@ -34,8 +34,8 @@ async fn main() -> Result<(), anyhow::Error> {
             limit: 10,
         })
         .await?;
-    db.store_feed_post_raw(timeline.feed).await?;
-    let timeline = db.read_timeline_raw(String::from("default")).await?;
+    db.store_timeline(timeline, String::from("default")).await?;
+    let timeline = db.read_timeline(String::from("default")).await?;
     println!("{}", serde_json::to_string_pretty(&timeline)?);
     Ok(())
 }
