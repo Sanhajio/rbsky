@@ -1,20 +1,30 @@
 use anyhow::{Context, Result};
 use atrium_api::app::bsky;
 use atrium_api::app::bsky::feed;
+use atrium_api::app::bsky::feed::defs::{FeedViewPost, PostView};
 use atrium_api::records::Record;
-use atrium_api::types::string::Cid;
 use chrono::{DateTime, ParseError, Utc};
 use log::{error, info, trace, warn};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::cmp::Ordering;
-use std::collections::HashMap;
 use std::path::PathBuf;
 use surrealdb::engine::local::{Db, RocksDb};
 use surrealdb::Surreal;
 use tokio::fs::create_dir_all;
 
-use crate::runner::Runner;
+#[derive(Serialize, Deserialize, Debug)]
+struct TimelineFeed {
+    id: String,
+    post: FeedViewPost,
+    reason: Option<feed::defs::FeedViewPostReasonEnum>,
+    reply: Option<Reply>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct Reply {
+    parent: Option<feed::defs::FeedViewPost>,
+    root: Option<feed::defs::FeedViewPost>,
+}
 
 #[derive(Clone)]
 pub struct SurrealDB {
@@ -27,6 +37,9 @@ pub struct TimelineCursor {
     cursor: String,
     timeline: String,
 }
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct TimelineResponse {}
 
 // Implementation on TimelineCursor full ChatGPT, did not read them
 // Optionally, implement `Ord` if you want total ordering and are sure every comparison will be valid
@@ -205,23 +218,58 @@ impl SurrealDB {
                 feed::defs::FeedViewPostReasonEnum::ReasonRepost(reason) => {}
             }
         }
-        let sql = format!(
-            r#"UPDATE feed:{} CONTENT {{
-                post: post:{},
-                reply: {{
-                  parent: {},
-                  root: {},
-                }},
-                reason: {},
-        }};"#,
-            cid,
-            cid,
-            serde_json::to_string(&cid_parent)?,
-            serde_json::to_string(&cid_root)?,
-            serde_json::to_string(&f.reason)?,
-        );
-        info!("{}", sql);
-        let _created = self.db.query(sql).await?;
+        match (cid_root, cid_parent) {
+            (Some(root), Some(parent)) => {
+                let sql = format!(
+                    r#"UPDATE feed:{} CONTENT {{
+                        post: post:{},
+                        reply: {{
+                          parent: feed:⟨{}⟩,
+                          root: feed:⟨{}⟩,
+                        }},
+                        reason: {},
+                }};"#,
+                    cid,
+                    cid,
+                    serde_json::to_string(&parent)?
+                        .trim_matches('"')
+                        .to_string(),
+                    serde_json::to_string(&root)?.trim_matches('"').to_string(),
+                    serde_json::to_string(&f.reason)?,
+                );
+                info!("{}", sql);
+                let _created = self.db.query(sql).await?;
+            }
+            _ => {
+                let sql = format!(
+                    r#"UPDATE feed:{} CONTENT {{
+                        post: post:{},
+                        reason: {},
+                }};"#,
+                    cid,
+                    cid,
+                    serde_json::to_string(&f.reason)?,
+                );
+                info!("{}", sql);
+                let _created = self.db.query(sql).await?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn store_feed_post_raw(
+        &self,
+        feed: Vec<atrium_api::app::bsky::feed::defs::FeedViewPost>,
+    ) -> Result<(), anyhow::Error> {
+        let _ = self.db.use_ns("bsky").use_db("timeline").await;
+        for f in feed {
+            let cid: String = serde_json::to_string(&f.post.cid.clone())?
+                .trim_matches('"')
+                .to_string();
+            let _created: Option<atrium_api::app::bsky::feed::defs::FeedViewPost> =
+                self.db.update(("feedviewpost", cid)).content(f).await?;
+        }
+
         Ok(())
     }
 
@@ -273,8 +321,7 @@ impl SurrealDB {
         timeline_name: String,
     ) -> Result<Vec<feed::defs::FeedViewPost>, anyhow::Error> {
         let _ = self.db.use_ns("bsky").use_db("timeline").await;
-        let mut timeline: Vec<feed::defs::FeedViewPost> =
-            self.db.select(timeline_name.clone()).await?;
+        let mut timeline: Vec<feed::defs::FeedViewPost> = self.db.select("feed").await?;
         sort_timeline_by_created_at(&mut timeline);
 
         info!(
@@ -283,6 +330,19 @@ impl SurrealDB {
             timeline.len()
         );
 
+        Ok(timeline)
+    }
+
+    pub async fn read_timeline_raw(
+        &self,
+        timeline_name: String,
+    ) -> Result<Vec<feed::defs::FeedViewPost>, anyhow::Error> {
+        let _ = self.db.use_ns("bsky").use_db("timeline").await;
+        let timeline: Vec<feed::defs::FeedViewPost> = self.db.select("feedviewpost").await?;
+        info!(
+            "Reading into {:?} timeline Db: {:?}",
+            timeline_name, timeline
+        );
         Ok(timeline)
     }
 
