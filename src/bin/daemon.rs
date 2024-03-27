@@ -17,7 +17,7 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
     let config = LogConfigBuilder::builder()
-        .path(String::from("daemon.log"))
+        .path(String::from("output/daemon.log"))
         .level("trace")
         .size(1 * 100)
         .roll_count(10)

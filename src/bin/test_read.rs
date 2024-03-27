@@ -6,7 +6,7 @@ use simple_log::LogConfigBuilder;
 async fn main() -> Result<(), anyhow::Error> {
     let db = SurrealDB::new().await?;
     let config = LogConfigBuilder::builder()
-        .path(String::from("test_read.log"))
+        .path(String::from("output/test_read.log"))
         .level("trace")
         .size(1 * 100)
         .roll_count(10)
@@ -14,7 +14,7 @@ async fn main() -> Result<(), anyhow::Error> {
         .build();
     let _ = simple_log::new(config);
 
-    let cached_feed = db.read_timeline_raw_query(String::from("default")).await?;
+    let cached_feed = db.read_timeline(String::from("default")).await?;
     trace!("Reading the data: {:?}", cached_feed);
     Ok(())
 }
