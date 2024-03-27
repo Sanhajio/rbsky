@@ -6,7 +6,6 @@ use chrono::{DateTime, ParseError, Utc};
 use log::{error, info, trace, warn};
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
-use std::path::PathBuf;
 use surrealdb::engine::local::{Db, RocksDb};
 use surrealdb::Surreal;
 use tokio::fs::create_dir_all;
@@ -14,7 +13,6 @@ use tokio::fs::create_dir_all;
 #[derive(Clone)]
 pub struct SurrealDB {
     db: Surreal<Db>,
-    path: PathBuf,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -90,7 +88,7 @@ impl SurrealDB {
         create_dir_all(&dir).await?;
         let path = dir.join("bsky.db");
         let db = Surreal::new::<RocksDb>(path.clone()).await?;
-        Ok(SurrealDB { db, path })
+        Ok(SurrealDB { db })
     }
 
     pub async fn store_post(
@@ -102,8 +100,6 @@ impl SurrealDB {
             .trim_matches('"')
             .to_string();
         let did: String = post.author.did.to_string().clone();
-        // let _created: Option<atrium_api::app::bsky::feed::defs::PostView> =
-        //     self.db.update(("post", cid)).content(post).await?;
         let sql = format!(
             r#"UPDATE post:{} CONTENT {{
                 cid: "{}",
@@ -260,6 +256,8 @@ impl SurrealDB {
         Ok(())
     }
 
+    // TODO:use timeline name to split timelines:
+    // either through use_db or feed:{timeline_name}
     pub async fn store_timeline(
         &self,
         timeline_data: feed::get_timeline::Output,
@@ -303,6 +301,8 @@ impl SurrealDB {
         Ok(())
     }
 
+    // TODO:use timeline name to split timelines:
+    // either through use_db or feed:{timeline_name}
     pub async fn read_timeline(
         &self,
         timeline_name: String,
@@ -316,6 +316,8 @@ impl SurrealDB {
         Ok(value)
     }
 
+    // TODO:use timeline name to split timelines:
+    // either through use_db or feed:{timeline_name}
     pub async fn read_cursor(
         &self,
         timeline_name: String,
