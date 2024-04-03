@@ -10,6 +10,8 @@ use surrealdb::engine::local::{Db, RocksDb};
 use surrealdb::Surreal;
 use tokio::fs::create_dir_all;
 
+use crate::nvim::FeedViewPostFlat;
+
 #[derive(Clone)]
 pub struct SurrealDB {
     db: Surreal<Db>,
@@ -178,6 +180,7 @@ impl SurrealDB {
                             .trim_matches('"')
                             .to_string(),
                     );
+                    trace!("storing parent {:?}", parent);
                     self.store_post_view(*parent).await?;
                 }
                 feed::defs::ReplyRefParentEnum::BlockedPost(_parent) => {}
@@ -190,6 +193,7 @@ impl SurrealDB {
                             .trim_matches('"')
                             .to_string(),
                     );
+                    trace!("storing root {:?}", root);
                     self.store_post_view(*root).await?;
                 }
                 feed::defs::ReplyRefRootEnum::NotFoundPost(_root) => {}
@@ -306,13 +310,13 @@ impl SurrealDB {
     pub async fn read_timeline(
         &self,
         timeline_name: String,
-    ) -> Result<Vec<feed::defs::FeedViewPost>, anyhow::Error> {
+    ) -> Result<Vec<FeedViewPostFlat>, anyhow::Error> {
         let _ = self.db.use_ns("bsky").use_db("timeline").await;
         let mut result = self
             .db
-            .query(r#"SELECT post[*], reply.parent AS reply.parent, reply.root AS reply.root, reason OMIT post.id, reply FROM feed fetch post.author"#)
+            .query(r#"SELECT post[*], reply.parent as parent, reply.root as root, reason OMIT post.id, parent.id, root.id FROM feed FETCH post.author, parent, root, parent.author, root.author;"#)
             .await?;
-        let value: Vec<feed::defs::FeedViewPost> = result.take(0)?;
+        let value: Vec<FeedViewPostFlat> = result.take(0)?;
         Ok(value)
     }
 

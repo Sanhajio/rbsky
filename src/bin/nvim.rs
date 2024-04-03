@@ -6,7 +6,7 @@ use clap::Parser;
 use futures::lock::Mutex;
 use log::{error, info};
 use rbsky::commands::LoginArgs;
-use rbsky::nvim::BskyRequestHandler;
+use rbsky::nvim::{BskyRequestHandler, FeedViewPostFlat};
 use rbsky::runner::Runner;
 use rbsky::{nvim::EventHandler, surreal::SurrealDB};
 use simple_log::LogConfigBuilder;
@@ -49,7 +49,7 @@ async fn init() -> Result<(), anyhow::Error> {
 async fn auto_update(
     db: Arc<Mutex<SurrealDB>>,
     runner: Runner,
-    nvim_feed: Arc<std::sync::Mutex<Option<Vec<FeedViewPost>>>>,
+    nvim_feed: Arc<std::sync::Mutex<Option<Vec<FeedViewPostFlat>>>>,
 ) -> Result<(), anyhow::Error> {
     let task_interval = Duration::from_secs(30);
     let mut event_handler_bg = EventHandler::new(db, runner)?;

@@ -2,10 +2,11 @@ use std::sync::Arc;
 
 use crate::surreal::SurrealDB;
 use crate::{commands::GetTimelineArgs, runner::Runner};
-use atrium_api::app::bsky::feed::defs::FeedViewPost;
+use atrium_api::app::bsky::feed::defs::{FeedViewPost, PostView};
 use futures::lock::Mutex;
 use log::{error, info, trace};
 use neovim_lib::{Neovim, RequestHandler, Session};
+use serde::{Deserialize, Serialize};
 use tokio::time::{self, Duration};
 
 enum Messages {
@@ -18,8 +19,18 @@ enum Messages {
     Unknown(String),
 }
 
+// TODO: It looks way too complex to rewrite feedviewpostflat;
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct FeedViewPostFlat {
+    pub post: PostView,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent: Option<PostView>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub root: Option<PostView>,
+}
+
 pub struct BskyRequestHandler {
-    pub feed: Arc<std::sync::Mutex<Option<Vec<FeedViewPost>>>>,
+    pub feed: Arc<std::sync::Mutex<Option<Vec<FeedViewPostFlat>>>>,
 }
 
 impl RequestHandler for BskyRequestHandler {
@@ -100,7 +111,8 @@ impl BskyRequestHandler {
     pub async fn update_feed(&mut self, db: &Arc<Mutex<SurrealDB>>) -> Result<(), anyhow::Error> {
         trace!("updating read handler feed");
         let db_lock = db.lock().await;
-        let cached_feed: Vec<FeedViewPost> = db_lock.read_timeline(String::from("default")).await?;
+        let cached_feed: Vec<FeedViewPostFlat> =
+            db_lock.read_timeline(String::from("default")).await?;
         trace!("reading the data: {:?}", cached_feed);
         let locked = self.feed.lock();
         match locked {
@@ -175,11 +187,12 @@ impl EventHandler {
 
     pub async fn update_feed(
         &mut self,
-        feed: Arc<std::sync::Mutex<Option<Vec<FeedViewPost>>>>,
+        feed: Arc<std::sync::Mutex<Option<Vec<FeedViewPostFlat>>>>,
     ) -> Result<(), anyhow::Error> {
         trace!("updating read handler feed");
         let db_lock = self.db.lock().await;
-        let cached_feed: Vec<FeedViewPost> = db_lock.read_timeline(String::from("default")).await?;
+        let cached_feed: Vec<FeedViewPostFlat> =
+            db_lock.read_timeline(String::from("default")).await?;
         trace!("reading the data: {:?}", cached_feed);
         let locked = feed.lock();
         match locked {
@@ -237,7 +250,7 @@ impl EventHandler {
     pub async fn refresh_timeline(
         &mut self,
         task_interval: Duration,
-        nvim_feed: Arc<std::sync::Mutex<Option<Vec<FeedViewPost>>>>,
+        nvim_feed: Arc<std::sync::Mutex<Option<Vec<FeedViewPostFlat>>>>,
     ) -> Result<(), anyhow::Error> {
         let mut interval = time::interval(task_interval);
         loop {
@@ -245,7 +258,8 @@ impl EventHandler {
             trace!("executed background task");
             self.update_timeline().await?;
             let db_lock = self.db.lock().await;
-            let data: Vec<FeedViewPost> = db_lock.read_timeline(String::from("default")).await?;
+            let data: Vec<FeedViewPostFlat> =
+                db_lock.read_timeline(String::from("default")).await?;
             let nvim_feed_lock = nvim_feed.lock();
             match nvim_feed_lock {
                 Ok(mut l) => {
