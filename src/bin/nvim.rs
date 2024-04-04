@@ -22,8 +22,11 @@ struct Args {
     #[arg(short, long, default_value_t = false)]
     debug: bool,
 
-    #[arg(short, long, default_value_t = false)]
+    #[arg(short, long, default_value_t = true)]
     auto_update: bool,
+
+    #[arg(long, default_value_t = 30)]
+    auto_update_interval: u64,
 }
 
 async fn init() -> Result<(), anyhow::Error> {
@@ -50,8 +53,9 @@ async fn auto_update(
     db: Arc<Mutex<SurrealDB>>,
     runner: Runner,
     nvim_feed: Arc<std::sync::Mutex<Option<Vec<FeedViewPostFlat>>>>,
+    update_interval: u64,
 ) -> Result<(), anyhow::Error> {
-    let task_interval = Duration::from_secs(30);
+    let task_interval = Duration::from_secs(update_interval);
     let mut event_handler_bg = EventHandler::new(db, runner)?;
     tokio::spawn(async move {
         if let Err(e) = event_handler_bg
@@ -91,7 +95,13 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let mut event_handler = EventHandler::new(db_reader, runner)?;
     if args.auto_update {
-        let _ = auto_update(db_writer, runner_bg, nvim_feed_writer).await;
+        let _ = auto_update(
+            db_writer,
+            runner_bg,
+            nvim_feed_writer,
+            args.auto_update_interval,
+        )
+        .await;
     }
     event_handler.recv(bsky_request_handler).await?;
     info!("event_handler, done!");

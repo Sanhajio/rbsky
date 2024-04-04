@@ -20,7 +20,7 @@ pub enum Command {
     /// Get a view of a hydrated feed.
     GetFeed(UriArgs),
     /// Get a view of a specified list,
-    GetPosts(UriArgs),
+    GetPosts(UriListArgs),
     /// Get a view of a specified list,
     GetListFeed(UriArgs),
     /// Get a list of who an actor follows.

@@ -314,7 +314,7 @@ impl SurrealDB {
         let _ = self.db.use_ns("bsky").use_db("timeline").await;
         let mut result = self
             .db
-            .query(r#"SELECT post[*], reply.parent as parent, reply.root as root, reason OMIT post.id, parent.id, root.id FROM feed FETCH post.author, parent, root, parent.author, root.author;"#)
+            .query(r#"SELECT post[*], post.record.createdAt as createdAt, reply.parent as parent, reply.root as root, reason OMIT post.id, parent.id, root.id FROM feed ORDER BY createdAt DESC FETCH post.author, parent, root, parent.author, root.author;"#)
             .await?;
         let value: Vec<FeedViewPostFlat> = result.take(0)?;
         Ok(value)

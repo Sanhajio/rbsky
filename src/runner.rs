@@ -26,7 +26,6 @@ pub struct Runner {
     handle: Option<Handle>,
 }
 
-// TODO: split Runner and run
 impl Runner {
     pub async fn new(pds_host: String, debug: bool) -> Result<Self> {
         let config_dir = dirs::config_dir()

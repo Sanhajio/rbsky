@@ -54,7 +54,7 @@ async fn main() -> Result<(), anyhow::Error> {
             }
             Ok(())
         }
-        Command::GetPost(args) => {
+        Command::GetPosts(args) => {
             let res = runner._get_post(args).await?;
             let json = serde_json::to_string_pretty(&res);
             if let Ok(d) = json {

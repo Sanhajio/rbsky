@@ -16,10 +16,10 @@ enum Messages {
     RePost,
     Like,
     UnLike,
+    FetchMore,
     Unknown(String),
 }
 
-// TODO: It looks way too complex to rewrite feedviewpostflat;
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FeedViewPostFlat {
     pub post: PostView,
@@ -99,6 +99,10 @@ impl RequestHandler for BskyRequestHandler {
                 error!("Uninmplemented");
                 return Ok(neovim_lib::Value::from("Unimplemented"));
             }
+            Messages::FetchMore => {
+                error!("Uninmplemented");
+                return Ok(neovim_lib::Value::from("Unimplemented"));
+            }
             Messages::Unknown(event) => {
                 error!("Uninmplemented");
                 return Ok(neovim_lib::Value::from("Unimplemented"));
@@ -175,6 +179,12 @@ impl EventHandler {
                     error!("Uninmplemented");
                 }
                 Messages::UnLike => {
+                    error!("Uninmplemented");
+                }
+                Messages::FetchMore => {
+                    // TODO: I need to query the db and return the result from the cid from neovim,
+                    // if there are no result update the timeline from that createdAt minus 1 hour
+                    // return the result
                     error!("Uninmplemented");
                 }
                 Messages::Unknown(event) => {
@@ -282,7 +292,7 @@ impl From<&str> for Messages {
             "update" => Messages::Update,
             "repost" => Messages::RePost,
             "like" => Messages::Like,
-            "unlike" => Messages::UnLike,
+            "fetch_more" => Messages::FetchMore,
             _ => Messages::Unknown(event.to_string()),
         }
     }
@@ -297,6 +307,7 @@ impl From<String> for Messages {
             "repost" => Messages::RePost,
             "like" => Messages::Like,
             "unlike" => Messages::UnLike,
+            "fetch_more" => Messages::FetchMore,
             _ => Messages::Unknown(event.to_string()),
         }
     }
