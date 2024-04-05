@@ -14,7 +14,7 @@ use crate::nvim::FeedViewPostFlat;
 
 #[derive(Clone)]
 pub struct SurrealDB {
-    db: Surreal<Db>,
+    pub db: Surreal<Db>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -310,14 +310,37 @@ impl SurrealDB {
     pub async fn read_timeline(
         &self,
         timeline_name: String,
+        filter: Option<String>,
     ) -> Result<Vec<FeedViewPostFlat>, anyhow::Error> {
         let _ = self.db.use_ns("bsky").use_db("timeline").await;
-        let mut result = self
-            .db
-            .query(r#"SELECT post[*], post.record.createdAt as createdAt, reply.parent as parent, reply.root as root, reason OMIT post.id, parent.id, root.id FROM feed ORDER BY createdAt DESC FETCH post.author, parent, root, parent.author, root.author;"#)
-            .await?;
+        let base_query = "SELECT post[*], post.record.createdAt as createdAt, reply.parent as parent, reply.root as root, reason OMIT post.id, parent.id, root.id FROM feed";
+        let mut query = base_query.to_string();
+
+        if let Some(f) = filter {
+            query = format!("{} WHERE {}", query, f);
+        }
+        query.push_str(
+            " ORDER BY createdAt DESC FETCH post.author, parent, root, parent.author, root.author;",
+        );
+
+        // let query = r#"SELECT post[*], post.record.createdAt as createdAt, reply.parent as parent, reply.root as root, reason OMIT post.id, parent.id, root.id FROM feed ORDER BY createdAt DESC FETCH post.author, parent, root, parent.author, root.author;"#;
+        let mut result = self.db.query(query).await?;
         let value: Vec<FeedViewPostFlat> = result.take(0)?;
         Ok(value)
+    }
+
+    pub async fn get_post(
+        &self,
+        timeline_name: String,
+        cid: String,
+    ) -> Result<FeedViewPostFlat, anyhow::Error> {
+        let _ = self.db.use_ns("bsky").use_db("timeline").await;
+        let query = format!(
+            r#"SELECT post[*], post.record.createdAt as createdAt, reply.parent as parent, reply.root as root, reason OMIT post.id, parent.id, root.id FROM feed WHERE post.cid == {cid} FETCH post.author, parent, root, parent.author, root.author;"#,
+        );
+        let mut result = self.db.query(query).await?;
+        let value: Vec<FeedViewPostFlat> = result.take(0)?;
+        Ok(value[0].clone())
     }
 
     // TODO:use timeline name to split timelines:

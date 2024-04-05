@@ -1,8 +1,9 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::surreal::SurrealDB;
 use crate::{commands::GetTimelineArgs, runner::Runner};
-use atrium_api::app::bsky::feed::defs::{FeedViewPost, PostView};
+use atrium_api::app::bsky::feed::defs::PostView;
 use futures::lock::Mutex;
 use log::{error, info, trace};
 use neovim_lib::{Neovim, RequestHandler, Session};
@@ -42,44 +43,9 @@ impl RequestHandler for BskyRequestHandler {
     ) -> Result<neovim_lib::Value, neovim_lib::Value> {
         trace!("Received name: {:?}, args: {:?}", name, args);
         match Messages::from(name) {
-            Messages::Read => {
-                info!("request_handler: acquiring lock");
-                let locked = self.feed.lock();
-                match locked {
-                    Ok(l) => {
-                        let opt = l.clone();
-                        match opt {
-                            Some(f) => {
-                                let feed_json = serde_json::to_string(&f);
-                                match feed_json {
-                                    Ok(s) => {
-                                        info!("request_handler: lock acquired");
-                                        trace!("Read Handler has value: {:?}", s);
-                                        drop(l);
-                                        info!("request_handler: lock dropped");
-                                        return Ok(neovim_lib::Value::from(s.as_str()));
-                                    }
-                                    Err(_) => {
-                                        drop(l);
-                                        error!("No Data to return: returning nil");
-                                        return Ok(neovim_lib::Value::from("nil"));
-                                    }
-                                }
-                            }
-                            None => {
-                                drop(l);
-                                error!("Lock acquired: No data in opt");
-                                return Ok(neovim_lib::Value::from("nil"));
-                            }
-                        }
-                    }
-                    Err(_) => {
-                        error!("Unable to acquire the lock: returning nil");
-                        return Ok(neovim_lib::Value::from("the feed is empty"));
-                    }
-                }
-            }
+            Messages::Read => Ok(self.handle_read_request()),
             Messages::FetchMore => {
+                // args[0]:
                 error!("Uninmplemented");
                 return Ok(neovim_lib::Value::from("Unimplemented"));
             }
@@ -109,7 +75,7 @@ impl RequestHandler for BskyRequestHandler {
                 return Ok(neovim_lib::Value::from("Unimplemented"));
             }
 
-            Messages::Unknown(event) => {
+            Messages::Unknown(_event) => {
                 error!("Uninmplemented");
                 return Ok(neovim_lib::Value::from("Unimplemented"));
             }
@@ -118,25 +84,42 @@ impl RequestHandler for BskyRequestHandler {
 }
 
 impl BskyRequestHandler {
-    pub async fn update_feed(&mut self, db: &Arc<Mutex<SurrealDB>>) -> Result<(), anyhow::Error> {
-        trace!("updating read handler feed");
-        let db_lock = db.lock().await;
-        let cached_feed: Vec<FeedViewPostFlat> =
-            db_lock.read_timeline(String::from("default")).await?;
-        trace!("reading the data: {:?}", cached_feed);
+    pub fn handle_read_request(&mut self) -> neovim_lib::Value {
+        info!("request_handler: acquiring lock");
         let locked = self.feed.lock();
         match locked {
-            Ok(mut l) => {
-                *l = Some(cached_feed);
-                drop(l);
-                return Ok(());
+            Ok(l) => {
+                let opt = l.clone();
+                match opt {
+                    Some(f) => {
+                        let feed_json = serde_json::to_string(&f);
+                        match feed_json {
+                            Ok(s) => {
+                                info!("request_handler: lock acquired");
+                                trace!("Read Handler has value: {:?}", s);
+                                drop(l);
+                                info!("request_handler: lock dropped");
+                                return neovim_lib::Value::from(s.as_str());
+                            }
+                            Err(_) => {
+                                drop(l);
+                                error!("No Data to return: returning nil");
+                                return neovim_lib::Value::from("nil");
+                            }
+                        }
+                    }
+                    None => {
+                        drop(l);
+                        error!("Lock acquired: No data in opt");
+                        return neovim_lib::Value::from("nil");
+                    }
+                }
             }
-            Err(e) => {
-                error!("error while fetching data {:?}", e);
+            Err(_) => {
+                error!("Unable to acquire the lock: returning nil");
+                return neovim_lib::Value::from("the feed is empty");
             }
-        };
-        drop(db_lock);
-        Ok(())
+        }
     }
 }
 
@@ -191,7 +174,8 @@ impl EventHandler {
                     // TODO: I need to query the db and return the result from the cid from neovim,
                     // if there are no result update the timeline from that createdAt minus 1 hour
                     // return the result
-                    error!("Uninmplemented");
+                    // args[0] Last CID
+                    self.fetch_more(values[0].to_string(), feed.clone()).await?;
                 }
                 Messages::Refresh => {
                     error!("Uninmplemented");
@@ -204,6 +188,69 @@ impl EventHandler {
         Ok(())
     }
 
+    // TODO: I'll put all the logic here and refactor afterward
+    pub async fn fetch_more(
+        &mut self,
+        cid: String,
+        feed: Arc<std::sync::Mutex<Option<Vec<FeedViewPostFlat>>>>,
+    ) -> Result<(), anyhow::Error> {
+        trace!("updating read handler feed");
+        let db_lock = self.db.lock().await;
+        let db = &db_lock.db;
+        let _ = db.use_ns("bsky").use_db("timeline").await;
+        let query = format!(
+            r#"SELECT post.record.createdAt as createdAt FROM feed WHERE cid={cid} LIMIT 1;"#
+        );
+        let mut result = db.query(query).await?;
+        trace!("reading the data: {:?}", result);
+        let value: Option<HashMap<String, String>> = result.take(0)?;
+        trace!("reading the data: {:?}", value);
+        if let Some(first_result) = value {
+            if let Some(created_at) = first_result.get("createdAt") {
+                let cursor = created_at;
+                let count_query = format!(
+                    r#"SELECT COUNT() as c FROM feed WHERE createdAt < '{cursor}' GROUP ALL"#,
+                );
+                let mut count_result = db.query(&count_query).await?;
+                let count: Option<HashMap<String, i32>> = count_result.take(0)?;
+                trace!("reading the data: {:?}", count);
+                if let Some(count) = count {
+                    if let Some(c) = count.get("c") {
+                        if *c > 0 {
+                            let more: Vec<FeedViewPostFlat> = db_lock
+                                .read_timeline(
+                                    String::from("default"),
+                                    Some(format!("createdAt < '{cursor}'")),
+                                )
+                                .await?;
+                            let locked = feed.lock();
+                            match locked {
+                                Ok(mut l) => {
+                                    info!("nvim_feed_lock Acquired Lock Updating Data");
+                                    if let Some(ref mut existing_feed) = *l {
+                                        existing_feed.extend(more.clone()); // Merge cached_feed into existing_feed
+                                    } else {
+                                        *l = Some(more.clone());
+                                    }
+                                    info!("nvim_feed_lock Droping Lock");
+                                    drop(l);
+                                    return Ok(());
+                                }
+                                Err(e) => {
+                                    error!("error while fetching data {:?}", e);
+                                }
+                            };
+                        }
+                    }
+                }
+            }
+        }
+
+        drop(db_lock);
+        Ok(())
+    }
+
+    // This function updates the feed that is sent back to neovim
     pub async fn update_feed(
         &mut self,
         feed: Arc<std::sync::Mutex<Option<Vec<FeedViewPostFlat>>>>,
@@ -211,7 +258,7 @@ impl EventHandler {
         trace!("updating read handler feed");
         let db_lock = self.db.lock().await;
         let cached_feed: Vec<FeedViewPostFlat> =
-            db_lock.read_timeline(String::from("default")).await?;
+            db_lock.read_timeline(String::from("default"), None).await?;
         trace!("reading the data: {:?}", cached_feed);
         let locked = feed.lock();
         match locked {
@@ -228,6 +275,7 @@ impl EventHandler {
         Ok(())
     }
 
+    // This function updates the timeline in the db
     pub async fn update_timeline(&mut self) -> Result<(), anyhow::Error> {
         let db_lock = self.db.lock().await;
         let cursor_res = db_lock.get_latest_cursor(String::from("default")).await;
@@ -266,7 +314,7 @@ impl EventHandler {
         Ok(())
     }
 
-    pub async fn refresh_timeline(
+    pub async fn auto_refresh_timeline(
         &mut self,
         task_interval: Duration,
         nvim_feed: Arc<std::sync::Mutex<Option<Vec<FeedViewPostFlat>>>>,
@@ -278,12 +326,16 @@ impl EventHandler {
             self.update_timeline().await?;
             let db_lock = self.db.lock().await;
             let data: Vec<FeedViewPostFlat> =
-                db_lock.read_timeline(String::from("default")).await?;
+                db_lock.read_timeline(String::from("default"), None).await?;
             let nvim_feed_lock = nvim_feed.lock();
             match nvim_feed_lock {
                 Ok(mut l) => {
                     info!("nvim_feed_lock Acquired Lock Updating Data");
-                    *l = Some(data.clone());
+                    if let Some(ref mut existing_feed) = *l {
+                        existing_feed.extend(data.clone()); // Merge cached_feed into existing_feed
+                    } else {
+                        *l = Some(data.clone());
+                    }
                     info!("nvim_feed_lock Droping Lock");
                     drop(l);
                 }

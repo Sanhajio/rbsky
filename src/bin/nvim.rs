@@ -59,7 +59,7 @@ async fn auto_update(
     let mut event_handler_bg = EventHandler::new(db, runner)?;
     tokio::spawn(async move {
         if let Err(e) = event_handler_bg
-            .refresh_timeline(task_interval, nvim_feed)
+            .auto_refresh_timeline(task_interval, nvim_feed)
             .await
         {
             error!("Error in refresh_timeline: {:?}", e);
