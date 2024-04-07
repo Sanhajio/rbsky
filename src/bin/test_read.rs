@@ -19,6 +19,7 @@ async fn main() -> Result<(), anyhow::Error> {
     let _ = simple_log::new(config);
     let db = SurrealDB::new().await?;
     let nvim_feed_reader = Arc::new(std::sync::Mutex::new(None));
+    let nvim_feed_writer = nvim_feed_reader.clone();
     let bsky_request_handler = BskyRequestHandler {
         feed: nvim_feed_reader,
     };
@@ -27,9 +28,10 @@ async fn main() -> Result<(), anyhow::Error> {
     let db_reader = Arc::new(Mutex::new(db));
     let mut event_handler = EventHandler::new(db_reader, runner)?;
     event_handler
-        .fetch_more(String::from(
-            "bafyreif3idvj3shzxlzkybsazlar7rhfros42pnndkcfknis2je7sq6yx4",
-        ))
+        .fetch_more(
+            String::from("bafyreifga2qawfdg6cugpnmcdzwrmw3bly4rxh6i5zsy4oqwecgta27p54"),
+            nvim_feed_writer,
+        )
         .await?;
     Ok(())
 }
