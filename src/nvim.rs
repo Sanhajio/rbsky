@@ -199,7 +199,7 @@ impl EventHandler {
         let db = &db_lock.db;
         let _ = db.use_ns("bsky").use_db("timeline").await;
         let query_select_created_at_post = format!(
-            r#"SELECT post.record.createdAt as createdAt FROM feed WHERE post.cid='{cid}' LIMIT 1;"#
+            r#"SELECT post.record.createdAt as createdAt FROM feed WHERE post.cid={cid} LIMIT 1;"#
         );
 
         let mut result = db.query(query_select_created_at_post).await?;
