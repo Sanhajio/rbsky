@@ -1,14 +1,26 @@
 use std::collections::HashMap;
-
-use atrium_api::app::bsky::actor::get_profile::Error;
 use surrealdb::{engine::local::Db, Surreal};
 
-use crate::surreal::SurrealDB;
-
 pub enum SqlQuery {
-    SelectCreatedAt { cid: String },
-    CountPostsOlderThan { created_at: String },
-    CountPostsNewerThan { created_at: String },
+    SelectCreatedAt {
+        cid: String,
+    },
+    CountPostsOlderThan {
+        created_at: String,
+    },
+    CountRecentPostsOlderThan {
+        created_at: String,
+        lower_limit: String,
+    },
+    CountPostsNewerThan {
+        created_at: String,
+    },
+    GetPost {
+        cid: String,
+    },
+    ReadTimeline {
+        filter: Option<String>,
+    },
 }
 
 impl SqlQuery {
@@ -22,10 +34,32 @@ impl SqlQuery {
                 r#"SELECT COUNT() as c FROM feed WHERE post.record.createdAt <= '{}' GROUP ALL"#,
                 created_at
             ),
+            SqlQuery::CountRecentPostsOlderThan {
+                created_at,
+                lower_limit,
+            } => format!(
+                r#"SELECT COUNT() as c FROM feed WHERE post.record.createdAt <= '{}' and post.record.createdAt > '{}' GROUP ALL"#,
+                created_at, lower_limit
+            ),
             SqlQuery::CountPostsNewerThan { created_at } => format!(
                 r#"SELECT COUNT() as c FROM feed WHERE post.record.createdAt >= '{}' GROUP ALL"#,
                 created_at
             ),
+            SqlQuery::GetPost { cid } => format!(
+                r#"SELECT post[*], post.record.createdAt as createdAt, reply.parent as parent, reply.root as root, reason OMIT post.id, parent.id, root.id FROM feed WHERE post.cid == {} FETCH post.author, parent, root, parent.author, root.author;"#,
+                cid
+            ),
+            SqlQuery::ReadTimeline { filter } => {
+                let base_query = "SELECT post[*], post.record.createdAt as createdAt, reply.parent as parent, reply.root as root, reason OMIT post.id, parent.id, root.id FROM feed";
+                let mut query = base_query.to_string();
+                if let Some(f) = filter {
+                    query = format!("{} WHERE {}", query, f);
+                }
+                query.push_str(
+                    " ORDER BY createdAt DESC LIMIT 10 FETCH post.author, parent, root, parent.author, root.author;",
+                );
+                query
+            }
         }
     }
 }
@@ -56,7 +90,29 @@ impl Querier {
                 return Ok(*count);
             }
         }
-        Err(anyhow::Error::msg(format!("Failed to get count for {sql}")))
+        Ok(0)
+        // Err(anyhow::Error::msg(format!("Failed to get count for {sql}")))
+    }
+
+    pub async fn count_recent_posts_older_than(
+        &self,
+        created_at: &str,
+        lower_limit: &str,
+    ) -> Result<i32, anyhow::Error> {
+        let query = SqlQuery::CountRecentPostsOlderThan {
+            created_at: created_at.to_string(),
+            lower_limit: lower_limit.to_string(),
+        };
+        let sql = query.to_sql();
+        let mut result: surrealdb::Response = self.run_query(&sql).await?;
+        let count_map: Option<HashMap<String, i32>> = result.take(0)?;
+        if let Some(count_map) = count_map {
+            if let Some(count) = count_map.get("c") {
+                return Ok(*count);
+            }
+        }
+        Ok(0)
+        // Err(anyhow::Error::msg(format!("Failed to get count for {sql}")))
     }
 
     pub async fn count_posts_newer_than(&self, created_at: &str) -> Result<i32, anyhow::Error> {
@@ -71,7 +127,19 @@ impl Querier {
                 return Ok(*count);
             }
         }
-        Err(anyhow::Error::msg(format!("Failed to get count for {sql}")))
+        Ok(0)
+        // Err(anyhow::Error::msg(format!("Failed to get count for {sql}")))
+    }
+
+    pub async fn read_timeline(
+        &self,
+        filter: Option<String>,
+    ) -> Result<Vec<crate::nvim::FeedViewPostFlat>, anyhow::Error> {
+        let query = SqlQuery::ReadTimeline { filter };
+        let sql = query.to_sql();
+        let mut result = self.db.query(&sql).await?;
+        let value: Vec<crate::nvim::FeedViewPostFlat> = result.take(0)?;
+        Ok(value)
     }
 
     pub async fn select_created_at(&self, cid: &str) -> Result<String, anyhow::Error> {
@@ -86,6 +154,23 @@ impl Querier {
                 return Ok(created_at.to_string());
             }
         }
-        Err(anyhow::Error::msg(format!("Failed to get count for {sql}")))
+        Err(anyhow::Error::msg(format!("Failed to get {sql}")))
+    }
+
+    pub async fn get_post(
+        &self,
+        cid: String,
+    ) -> Result<Option<crate::nvim::FeedViewPostFlat>, anyhow::Error> {
+        let query = SqlQuery::GetPost {
+            cid: cid.to_string(),
+        };
+        let sql = query.to_sql();
+        let mut result = self.run_query(&sql).await?;
+        let value: Vec<crate::nvim::FeedViewPostFlat> = result.take(0)?;
+        if value.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(value[0].clone()))
+        }
     }
 }

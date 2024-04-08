@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use atrium_api::app::bsky::feed::defs::FeedViewPost;
 use clap::Parser;
 use futures::lock::Mutex;
 use log::{error, info};

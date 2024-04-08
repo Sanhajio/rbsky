@@ -168,10 +168,10 @@ impl EventHandler {
                 Messages::Update => {
                     // args: values[0] contains the first cid from that neovim sends
                     if values.is_empty() {
-                        self.update_timeline(None).await?;
-                    } else {
-                        self.refresh_from_cid(values[0].to_string()).await?;
+                        let now = chrono::offset::Local::now().to_rfc3339();
+                        self.update_timeline(Some(now)).await?;
                     }
+                    self.clean_feed(feed.clone()).await?;
                     self.update_feed(feed.clone()).await?;
                 }
                 Messages::RePost => {
@@ -188,7 +188,11 @@ impl EventHandler {
                     self.fetch_more(values[0].to_string(), feed.clone()).await?;
                 }
                 Messages::Refresh => {
-                    error!("Uninmplemented");
+                    // args: values[0] contains the first cid from that neovim sends
+                    if values.is_empty() {
+                        self.update_timeline(None).await?;
+                    }
+                    self.update_feed(feed.clone()).await?;
                 }
                 Messages::Unknown(event) => {
                     error!("Uninmplemented {}", event);
@@ -197,6 +201,28 @@ impl EventHandler {
         }
         Ok(())
     }
+
+    async fn clean_feed(
+        &mut self,
+        feed: Arc<std::sync::Mutex<Option<Vec<FeedViewPostFlat>>>>,
+    ) -> Result<(), anyhow::Error> {
+        let locked = feed.lock();
+        let empty: Vec<FeedViewPostFlat> = vec![];
+        match locked {
+            Ok(mut l) => {
+                info!("nvim_feed_lock Acquired Lock Cleaning Data");
+                *l = Some(empty);
+                info!("nvim_feed_lock Droping Lock");
+                drop(l);
+                return Ok(());
+            }
+            Err(e) => {
+                error!("error while fetching data {:?}", e);
+            }
+        };
+        Ok(())
+    }
+
     async fn merge_feed(
         feed: Arc<std::sync::Mutex<Option<Vec<FeedViewPostFlat>>>>,
         more: Vec<FeedViewPostFlat>,
@@ -305,22 +331,38 @@ impl EventHandler {
         let mut cursor: String = cid_created_at.clone();
 
         while result_number < 11 {
-            let count_older_than: i32 = Querier::new(db.clone())
-                .count_posts_older_than(cid_created_at.as_str())
+            let lower_limit = chrono::DateTime::parse_from_rfc3339(cid_created_at.as_str())?
+                .checked_sub_signed(
+                    chrono::Duration::try_minutes(300).expect("Unable to convert to minutes"),
+                )
+                .expect("Time calculation error")
+                .to_rfc3339();
+
+            let count_recent_older_than: i32 = Querier::new(db.clone())
+                .count_recent_posts_older_than(cid_created_at.as_str(), lower_limit.as_str())
                 .await?;
-            result_number = count_older_than;
+            result_number = count_recent_older_than;
             info!(
                 "cid: {}, date: {}, count older than: {}; result number: {} ",
                 cid.as_str(),
-                count_older_than,
+                count_recent_older_than,
                 result_number,
                 cursor
             );
-            if count_older_than > 11 {
+            if count_recent_older_than > 11 {
+                let lower_limit = chrono::DateTime::parse_from_rfc3339(&cursor)?
+                    .checked_sub_signed(
+                        chrono::Duration::try_minutes(300).expect("Unable to convert to minutes"),
+                    )
+                    .expect("Time calculation error")
+                    .to_rfc3339();
+
                 let more: Vec<FeedViewPostFlat> = db_lock
                     .read_timeline(
                         String::from("default"),
-                        Some(format!("createdAt < '{cursor}'")),
+                        Some(format!(
+                            "createdAt < '{cursor}' and createdAt >= '{lower_limit}'"
+                        )),
                     )
                     .await?;
                 // EventHandler::merge_feed(feed.clone(), more).await?;
@@ -424,8 +466,12 @@ impl EventHandler {
         mut cursor: Option<String>,
     ) -> Result<(), anyhow::Error> {
         let db_lock = self.db.lock().await;
+        // TODO: This leaves the timeline stuck at a point in time
+        // I wanted to get all the data from latest_cursor to now basically
+        // But It's not yet handled well
         match cursor {
             Some(ref _c) => {}
+            /*
             None => {
                 let cursor_res = db_lock.get_latest_cursor(String::from("default")).await;
                 match cursor_res {
@@ -436,6 +482,8 @@ impl EventHandler {
                     Err(e) => error!("error while fetching cursor data {:?}", e),
                 }
             }
+            */
+            None => {}
         }
 
         let timeline = self

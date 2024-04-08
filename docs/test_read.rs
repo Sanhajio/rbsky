@@ -29,7 +29,7 @@ async fn main() -> Result<(), anyhow::Error> {
     let mut event_handler = EventHandler::new(db_reader, runner)?;
     event_handler
         .fetch_more(
-            String::from("bafyreifga2qawfdg6cugpnmcdzwrmw3bly4rxh6i5zsy4oqwecgta27p54"),
+            String::from("'bafyreia4l6hu774vvvldyxaulvy2vvs7h2tkhjssikl6xzk4kixgrmj5s4'"),
             nvim_feed_writer,
         )
         .await?;
