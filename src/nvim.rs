@@ -167,10 +167,7 @@ impl EventHandler {
                 }
                 Messages::Update => {
                     // args: values[0] contains the first cid from that neovim sends
-                    if values.is_empty() {
-                        let now = chrono::offset::Local::now().to_rfc3339();
-                        self.update_timeline(Some(now)).await?;
-                    }
+                    self.update_timeline(None).await?;
                     self.clean_feed(feed.clone()).await?;
                     self.update_feed(feed.clone()).await?;
                 }
@@ -190,8 +187,10 @@ impl EventHandler {
                 Messages::Refresh => {
                     // args: values[0] contains the first cid from that neovim sends
                     if values.is_empty() {
-                        self.update_timeline(None).await?;
+                        let now = chrono::offset::Local::now().to_rfc3339();
+                        self.update_timeline(Some(now)).await?;
                     }
+                    self.clean_feed(feed.clone()).await?;
                     self.update_feed(feed.clone()).await?;
                 }
                 Messages::Unknown(event) => {
@@ -324,45 +323,46 @@ impl EventHandler {
         let db = &db_lock.db;
         let _ = db.use_ns("bsky").use_db("timeline").await;
 
+        let iteration_timeframe = 30;
         let cid_created_at: String = Querier::new(db.clone())
             .select_created_at(cid.as_str())
             .await?;
-        let mut result_number: i32 = 0;
+        let mut current_count: i32 = 0;
+        let upper_limit_cursor: String = cid_created_at.clone();
         let mut cursor: String = cid_created_at.clone();
+        let mut lower_limit_cursor = chrono::DateTime::parse_from_rfc3339(cid_created_at.as_str())?
+            .checked_sub_signed(
+                chrono::Duration::try_minutes(iteration_timeframe)
+                    .expect("Unable to convert to minutes"),
+            )
+            .expect("Time calculation error")
+            .to_rfc3339();
 
-        while result_number < 11 {
-            let lower_limit = chrono::DateTime::parse_from_rfc3339(cid_created_at.as_str())?
-                .checked_sub_signed(
-                    chrono::Duration::try_minutes(300).expect("Unable to convert to minutes"),
+        while current_count < 11 {
+            let timeframe_count: i32 = Querier::new(db.clone())
+                .count_recent_posts_older_than(
+                    upper_limit_cursor.as_str(),
+                    lower_limit_cursor.as_str(),
                 )
-                .expect("Time calculation error")
-                .to_rfc3339();
-
-            let count_recent_older_than: i32 = Querier::new(db.clone())
-                .count_recent_posts_older_than(cid_created_at.as_str(), lower_limit.as_str())
                 .await?;
-            result_number = count_recent_older_than;
+
+            current_count = timeframe_count;
             info!(
                 "cid: {}, date: {}, count older than: {}; result number: {} ",
                 cid.as_str(),
-                count_recent_older_than,
-                result_number,
-                cursor
+                cid_created_at,
+                current_count,
+                lower_limit_cursor,
             );
-            if count_recent_older_than > 11 {
-                let lower_limit = chrono::DateTime::parse_from_rfc3339(&cursor)?
-                    .checked_sub_signed(
-                        chrono::Duration::try_minutes(300).expect("Unable to convert to minutes"),
-                    )
-                    .expect("Time calculation error")
-                    .to_rfc3339();
-
+            if timeframe_count > 11 {
                 let more: Vec<FeedViewPostFlat> = db_lock
                     .read_timeline(
                         String::from("default"),
                         Some(format!(
-                            "createdAt < '{cursor}' and createdAt >= '{lower_limit}'"
+                            "post.record.createdAt <= '{}' and post.record.createdAt > '{}'",
+                            upper_limit_cursor, lower_limit_cursor
                         )),
+                        None,
                     )
                     .await?;
                 // EventHandler::merge_feed(feed.clone(), more).await?;
@@ -393,17 +393,16 @@ impl EventHandler {
                     }
                 };
             } else {
-                let new_cursor_time = chrono::DateTime::parse_from_rfc3339(&cursor)?
+                cursor = lower_limit_cursor;
+
+                lower_limit_cursor = chrono::DateTime::parse_from_rfc3339(&cursor)?
                     .checked_sub_signed(
-                        chrono::Duration::try_minutes(30).expect("Unable to convert to minutes"),
+                        chrono::Duration::try_minutes(iteration_timeframe)
+                            .expect("Unable to convert to minutes"),
                     )
                     .expect("Time calculation error")
                     .to_rfc3339();
-                info!(
-                    "fetching timeline with new cursor at: {:?}",
-                    new_cursor_time
-                );
-                cursor = new_cursor_time.clone();
+                info!("fetching timeline with new cursor at: {:?}", cursor);
                 let timeline = self
                     .runner
                     ._get_timeline(GetTimelineArgs {
@@ -431,6 +430,46 @@ impl EventHandler {
                 }
             }
         }
+        // TODO: This is a dirty fix for a the condition
+        if current_count >= 11 {
+            let more: Vec<FeedViewPostFlat> = db_lock
+                .read_timeline(
+                    String::from("default"),
+                    Some(format!(
+                        "post.record.createdAt <= '{}' and post.record.createdAt > '{}'",
+                        upper_limit_cursor, lower_limit_cursor
+                    )),
+                    None,
+                )
+                .await?;
+            // EventHandler::merge_feed(feed.clone(), more).await?;
+            let locked = feed.lock();
+            match locked {
+                Ok(mut l) => {
+                    info!("nvim_feed_lock Acquired Lock Updating Data");
+                    if let Some(ref mut existing_feed) = *l {
+                        let existing_feed_len = existing_feed.len();
+                        let more_feed_len = more.len();
+                        info!("merging existing feed: {existing_feed_len} with more items {more_feed_len}");
+                        for item in more.clone() {
+                            if !existing_feed.contains(&item) {
+                                existing_feed.push(item);
+                            }
+                        }
+                        let existing_feed_len = existing_feed.len();
+                        info!("existing feed merged: {existing_feed_len}");
+                    } else {
+                        *l = Some(more.clone());
+                    }
+                    info!("nvim_feed_lock Droping Lock");
+                    drop(l);
+                    return Ok(());
+                }
+                Err(e) => {
+                    error!("error while fetching data {:?}", e);
+                }
+            };
+        }
         drop(db_lock);
         Ok(())
     }
@@ -442,8 +481,9 @@ impl EventHandler {
     ) -> Result<(), anyhow::Error> {
         trace!("updating read handler feed");
         let db_lock = self.db.lock().await;
-        let cached_feed: Vec<FeedViewPostFlat> =
-            db_lock.read_timeline(String::from("default"), None).await?;
+        let cached_feed: Vec<FeedViewPostFlat> = db_lock
+            .read_timeline(String::from("default"), None, Some(10))
+            .await?;
         trace!("reading the data: {:?}", cached_feed);
         let locked = feed.lock();
         match locked {
@@ -524,8 +564,9 @@ impl EventHandler {
             trace!("executed background task");
             self.update_timeline(None).await?;
             let db_lock = self.db.lock().await;
-            let data: Vec<FeedViewPostFlat> =
-                db_lock.read_timeline(String::from("default"), None).await?;
+            let data: Vec<FeedViewPostFlat> = db_lock
+                .read_timeline(String::from("default"), None, Some(10))
+                .await?;
             let nvim_feed_lock = nvim_feed.lock();
             match nvim_feed_lock {
                 Ok(mut l) => {

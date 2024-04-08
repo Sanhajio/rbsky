@@ -20,6 +20,7 @@ pub enum SqlQuery {
     },
     ReadTimeline {
         filter: Option<String>,
+        limit: Option<i32>,
     },
 }
 
@@ -49,15 +50,17 @@ impl SqlQuery {
                 r#"SELECT post[*], post.record.createdAt as createdAt, reply.parent as parent, reply.root as root, reason OMIT post.id, parent.id, root.id FROM feed WHERE post.cid == {} FETCH post.author, parent, root, parent.author, root.author;"#,
                 cid
             ),
-            SqlQuery::ReadTimeline { filter } => {
+            SqlQuery::ReadTimeline { filter, limit } => {
                 let base_query = "SELECT post[*], post.record.createdAt as createdAt, reply.parent as parent, reply.root as root, reason OMIT post.id, parent.id, root.id FROM feed";
                 let mut query = base_query.to_string();
                 if let Some(f) = filter {
                     query = format!("{} WHERE {}", query, f);
                 }
-                query.push_str(
-                    " ORDER BY createdAt DESC LIMIT 10 FETCH post.author, parent, root, parent.author, root.author;",
-                );
+                query.push_str(" ORDER BY createdAt DESC");
+                if let Some(l) = limit {
+                    query = format!("{} LIMIT {}", query, l);
+                }
+                query.push_str(" FETCH post.author, parent, root, parent.author, root.author;");
                 query
             }
         }
@@ -134,8 +137,9 @@ impl Querier {
     pub async fn read_timeline(
         &self,
         filter: Option<String>,
+        limit: Option<i32>,
     ) -> Result<Vec<crate::nvim::FeedViewPostFlat>, anyhow::Error> {
-        let query = SqlQuery::ReadTimeline { filter };
+        let query = SqlQuery::ReadTimeline { filter, limit };
         let sql = query.to_sql();
         let mut result = self.db.query(&sql).await?;
         let value: Vec<crate::nvim::FeedViewPostFlat> = result.take(0)?;

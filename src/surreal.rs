@@ -311,10 +311,12 @@ impl SurrealDB {
         &self,
         timeline_name: String,
         filter: Option<String>,
+        limit: Option<i32>,
     ) -> Result<Vec<FeedViewPostFlat>, anyhow::Error> {
         let _ = self.db.use_ns("bsky").use_db("timeline").await;
-        let value: Vec<FeedViewPostFlat> =
-            Querier::new(self.db.clone()).read_timeline(filter).await?;
+        let value: Vec<FeedViewPostFlat> = Querier::new(self.db.clone())
+            .read_timeline(filter, limit)
+            .await?;
         Ok(value)
     }
 
