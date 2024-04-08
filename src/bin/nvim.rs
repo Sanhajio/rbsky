@@ -22,14 +22,17 @@ struct Args {
     #[arg(short, long, default_value_t = false)]
     debug: bool,
 
-    #[arg(short, long, default_value_t = true)]
+    #[arg(long, default_value_t = false)]
     auto_update: bool,
 
-    #[arg(long, default_value_t = 30)]
+    #[arg(long, default_value_t = 300)]
     auto_update_interval: u64,
+
+    #[arg(long, default_value = "info")]
+    log_level: String,
 }
 
-async fn init() -> Result<(), anyhow::Error> {
+async fn init(log_level: &str) -> Result<(), anyhow::Error> {
     let config_dir =
         dirs::config_dir().with_context(|| format!("No config dir: {:?}", dirs::config_dir()))?;
     let dir = config_dir.join("bsky");
@@ -38,7 +41,7 @@ async fn init() -> Result<(), anyhow::Error> {
     if let Some(path) = path.to_str() {
         let config = LogConfigBuilder::builder()
             .path(String::from(path))
-            .level("trace")
+            .level(log_level)
             .size(1 * 100)
             .roll_count(10)
             .output_file()
@@ -70,7 +73,8 @@ async fn auto_update(
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
-    init().await?;
+    let args = Args::parse();
+    init(&args.log_level).await?;
     let db = SurrealDB::new().await?;
     let nvim_feed_reader = Arc::new(std::sync::Mutex::new(None));
     let nvim_feed_writer = nvim_feed_reader.clone();
@@ -80,7 +84,6 @@ async fn main() -> Result<(), anyhow::Error> {
     let bsky_request_handler = BskyRequestHandler {
         feed: nvim_feed_reader,
     };
-    let args = Args::parse();
 
     let pds_host = args.pds_host;
     let runner = Runner::new(pds_host.clone(), args.debug).await?;
@@ -95,6 +98,7 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let mut event_handler = EventHandler::new(db_reader, runner)?;
     if args.auto_update {
+        info!("Starting auto update");
         let _ = auto_update(
             db_writer,
             runner_bg,

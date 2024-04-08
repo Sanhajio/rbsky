@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::sql::Querier;
 use crate::surreal::SurrealDB;
 use crate::{commands::GetTimelineArgs, runner::Runner};
 use atrium_api::app::bsky::feed::defs::PostView;
@@ -98,6 +99,8 @@ impl BskyRequestHandler {
                 match opt {
                     Some(f) => {
                         drop(l);
+                        let feed_len = f.len();
+                        info!("request_handler returning: {feed_len} data");
                         let feed_json = serde_json::to_string(&f);
                         info!("request_handler: lock dropped");
                         match feed_json {
@@ -151,6 +154,8 @@ impl EventHandler {
             .nvim
             .session
             .start_event_loop_channel_handler(bsky_request_handler);
+        self.update_timeline(None).await?;
+        self.update_feed(feed.clone()).await?;
         for (event, values) in receiver {
             trace!("Received rpcevent: {:?}, values: {:?}", event, values);
             match Messages::from(event) {
@@ -161,7 +166,12 @@ impl EventHandler {
                     error!("Uninmplemented");
                 }
                 Messages::Update => {
-                    self.update_timeline(None).await?;
+                    // args: values[0] contains the first cid from that neovim sends
+                    if values.is_empty() {
+                        self.update_timeline(None).await?;
+                    } else {
+                        self.refresh_from_cid(values[0].to_string()).await?;
+                    }
                     self.update_feed(feed.clone()).await?;
                 }
                 Messages::RePost => {
@@ -187,103 +197,194 @@ impl EventHandler {
         }
         Ok(())
     }
+    async fn merge_feed(
+        feed: Arc<std::sync::Mutex<Option<Vec<FeedViewPostFlat>>>>,
+        more: Vec<FeedViewPostFlat>,
+    ) -> Result<(), anyhow::Error> {
+        let locked = feed.lock();
+        match locked {
+            Ok(mut l) => {
+                info!("nvim_feed_lock Acquired Lock Updating Data");
+                if let Some(ref mut existing_feed) = *l {
+                    for item in more.clone() {
+                        if !existing_feed.contains(&item) {
+                            existing_feed.push(item);
+                        }
+                    }
+                } else {
+                    *l = Some(more.clone());
+                }
+                info!("nvim_feed_lock Droping Lock");
+                drop(l);
+                return Ok(());
+            }
+            Err(e) => {
+                error!("error while fetching data {:?}", e);
+            }
+        };
+        Ok(())
+    }
 
-    // TODO: I'll put all the logic here and refactor afterward
+    pub async fn refresh_from_cid(&mut self, cid: String) -> Result<(), anyhow::Error> {
+        info!("refresh from cid {cid} feed");
+        let db_lock = self.db.lock().await;
+        let db = &db_lock.db;
+        let _ = db.use_ns("bsky").use_db("timeline").await;
+
+        let cid_created_at: String = Querier::new(db.clone())
+            .select_created_at(cid.as_str())
+            .await?;
+
+        let new_cursor_time = chrono::DateTime::parse_from_rfc3339(&cid_created_at)?
+            .checked_add_signed(
+                chrono::Duration::try_minutes(10).expect("Unable to convert to minutes"),
+            )
+            .expect("Time calculation error")
+            .to_rfc3339();
+
+        info!(
+            "fetching timeline with new cursor at: {:?}",
+            new_cursor_time
+        );
+
+        let timeline = self
+            .runner
+            ._get_timeline(GetTimelineArgs {
+                algorithm: String::from("reverse-chronological"),
+                cursor: Some(new_cursor_time),
+                limit: 10,
+            })
+            .await;
+
+        let count_newer_than: i32 = Querier::new(db.clone())
+            .count_posts_newer_than(cid_created_at.as_str())
+            .await?;
+
+        info!(
+            "cid: {}, date: {}, count newer than: {}",
+            cid.as_str(),
+            cid_created_at,
+            count_newer_than,
+        );
+
+        match timeline {
+            Ok(data) => {
+                trace!("read timeline {:?}", data);
+                let write_res = db_lock
+                    .store_timeline(data.clone(), String::from("default"))
+                    .await;
+                match write_res {
+                    Ok(res) => {
+                        info!("data written successfully: {:?}", res)
+                    }
+                    Err(e) => error!("error while fetching data {:?}", e),
+                }
+            }
+            Err(e) => {
+                error!("error while fetching data {:?}", e);
+            }
+        }
+        drop(db_lock);
+        Ok(())
+    }
+
     pub async fn fetch_more(
         &mut self,
         cid: String,
         feed: Arc<std::sync::Mutex<Option<Vec<FeedViewPostFlat>>>>,
     ) -> Result<(), anyhow::Error> {
-        trace!("fetch more data into the feed handler");
+        info!("fetch more data into the feed handler");
         let db_lock = self.db.lock().await;
         let db = &db_lock.db;
         let _ = db.use_ns("bsky").use_db("timeline").await;
-        let query_select_created_at_post = format!(
-            r#"SELECT post.record.createdAt as createdAt FROM feed WHERE post.cid={cid} LIMIT 1;"#
-        );
 
-        let mut result = db.query(query_select_created_at_post).await?;
-        let value: Option<HashMap<String, String>> = result.take(0)?;
-        trace!("reading post createdAt query data: {:?}", value);
-        if let Some(first_result) = value {
-            if let Some(created_at) = first_result.get("createdAt") {
-                let query_count_posts = format!(
-                    r#"SELECT COUNT() as c FROM feed WHERE post.record.createdAt <= '{created_at}' GROUP ALL"#,
-                );
-                let mut result_number: i32 = 0;
-                while result_number < 11 {
-                    let mut count_result = db.query(&query_count_posts).await?;
-                    let mut cursor: String = created_at.to_string();
-                    let count: Option<HashMap<String, i32>> = count_result.take(0)?;
-                    trace!("reading the data: {:?}", count);
-                    if let Some(count) = count {
-                        if let Some(c) = count.get("c") {
-                            result_number = *c;
-                            if *c > 11 {
-                                let more: Vec<FeedViewPostFlat> = db_lock
-                                    .read_timeline(
-                                        String::from("default"),
-                                        Some(format!("createdAt < '{cursor}'")),
-                                    )
-                                    .await?;
-                                let locked = feed.lock();
-                                match locked {
-                                    Ok(mut l) => {
-                                        info!("nvim_feed_lock Acquired Lock Updating Data");
-                                        if let Some(ref mut existing_feed) = *l {
-                                            for item in more.clone() {
-                                                if !existing_feed.contains(&item) {
-                                                    existing_feed.push(item);
-                                                }
-                                            }
-                                        } else {
-                                            *l = Some(more.clone());
-                                        }
-                                        info!("nvim_feed_lock Droping Lock");
-                                        drop(l);
-                                        return Ok(());
-                                    }
-                                    Err(e) => {
-                                        error!("error while fetching data {:?}", e);
-                                    }
-                                };
-                            } else {
-                                let new_cursor_time =
-                                    chrono::DateTime::parse_from_rfc3339(&cursor)?
-                                        .checked_sub_signed(
-                                            chrono::Duration::try_minutes(10)
-                                                .expect("Unable to convert to minutes"),
-                                        )
-                                        .expect("Time calculation error")
-                                        .to_rfc3339();
-                                cursor = String::from(new_cursor_time);
-                                let timeline = self
-                                    .runner
-                                    ._get_timeline(GetTimelineArgs {
-                                        algorithm: String::from("reverse-chronological"),
-                                        cursor: Some(cursor),
-                                        limit: 10,
-                                    })
-                                    .await;
-                                match timeline {
-                                    Ok(data) => {
-                                        trace!("read timeline {:?}", data);
-                                        let write_res = db_lock
-                                            .store_timeline(data.clone(), String::from("default"))
-                                            .await;
-                                        match write_res {
-                                            Ok(res) => {
-                                                info!("data written successfully: {:?}", res)
-                                            }
-                                            Err(e) => error!("error while fetching data {:?}", e),
-                                        }
-                                    }
-                                    Err(e) => {
-                                        error!("error while fetching data {:?}", e);
-                                    }
+        let cid_created_at: String = Querier::new(db.clone())
+            .select_created_at(cid.as_str())
+            .await?;
+        let mut result_number: i32 = 0;
+        let mut cursor: String = cid_created_at.clone();
+
+        while result_number < 11 {
+            let count_older_than: i32 = Querier::new(db.clone())
+                .count_posts_older_than(cid_created_at.as_str())
+                .await?;
+            result_number = count_older_than;
+            info!(
+                "cid: {}, date: {}, count older than: {}; result number: {} ",
+                cid.as_str(),
+                count_older_than,
+                result_number,
+                cursor
+            );
+            if count_older_than > 11 {
+                let more: Vec<FeedViewPostFlat> = db_lock
+                    .read_timeline(
+                        String::from("default"),
+                        Some(format!("createdAt < '{cursor}'")),
+                    )
+                    .await?;
+                // EventHandler::merge_feed(feed.clone(), more).await?;
+                let locked = feed.lock();
+                match locked {
+                    Ok(mut l) => {
+                        info!("nvim_feed_lock Acquired Lock Updating Data");
+                        if let Some(ref mut existing_feed) = *l {
+                            let existing_feed_len = existing_feed.len();
+                            let more_feed_len = more.len();
+                            info!("merging existing feed: {existing_feed_len} with more items {more_feed_len}");
+                            for item in more.clone() {
+                                if !existing_feed.contains(&item) {
+                                    existing_feed.push(item);
                                 }
                             }
+                            let existing_feed_len = existing_feed.len();
+                            info!("existing feed merged: {existing_feed_len}");
+                        } else {
+                            *l = Some(more.clone());
                         }
+                        info!("nvim_feed_lock Droping Lock");
+                        drop(l);
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        error!("error while fetching data {:?}", e);
+                    }
+                };
+            } else {
+                let new_cursor_time = chrono::DateTime::parse_from_rfc3339(&cursor)?
+                    .checked_sub_signed(
+                        chrono::Duration::try_minutes(30).expect("Unable to convert to minutes"),
+                    )
+                    .expect("Time calculation error")
+                    .to_rfc3339();
+                info!(
+                    "fetching timeline with new cursor at: {:?}",
+                    new_cursor_time
+                );
+                cursor = new_cursor_time.clone();
+                let timeline = self
+                    .runner
+                    ._get_timeline(GetTimelineArgs {
+                        algorithm: String::from("reverse-chronological"),
+                        cursor: Some(cursor.to_string()),
+                        limit: 10,
+                    })
+                    .await;
+                match timeline {
+                    Ok(data) => {
+                        trace!("read timeline {:?}", data);
+                        let write_res = db_lock
+                            .store_timeline(data.clone(), String::from("default"))
+                            .await;
+                        match write_res {
+                            Ok(res) => {
+                                info!("data written successfully: {:?}", res)
+                            }
+                            Err(e) => error!("error while fetching data {:?}", e),
+                        }
+                    }
+                    Err(e) => {
+                        error!("error while fetching data {:?}", e);
                     }
                 }
             }

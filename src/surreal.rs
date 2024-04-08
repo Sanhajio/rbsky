@@ -81,7 +81,6 @@ fn sort_timeline_by_created_at(timeline: &mut Vec<feed::defs::FeedViewPost>) {
     });
 }
 
-// TODO: maybe change this to BSKYDB
 impl SurrealDB {
     pub async fn new() -> Result<Self> {
         let config_dir = dirs::config_dir()
@@ -127,7 +126,7 @@ impl SurrealDB {
             serde_json::to_string(&post.uri)?,
             serde_json::to_string(&post.viewer)?,
         );
-        info!("{}", sql);
+        trace!("storing post: {}", sql);
         let _created = self.db.query(sql).await?;
         Ok(())
     }
@@ -224,7 +223,7 @@ impl SurrealDB {
                     serde_json::to_string(&root)?.trim_matches('"').to_string(),
                     serde_json::to_string(&f.reason)?,
                 );
-                info!("{}", sql);
+                trace!("storing feedviewpost: {}", sql);
                 let _created = self.db.query(sql).await?;
             }
             _ => {
@@ -237,7 +236,7 @@ impl SurrealDB {
                     cid,
                     serde_json::to_string(&f.reason)?,
                 );
-                info!("{}", sql);
+                trace!("storing feedviewpost: {}", sql);
                 let _created = self.db.query(sql).await?;
             }
         }
@@ -322,8 +321,6 @@ impl SurrealDB {
         query.push_str(
             " ORDER BY createdAt DESC FETCH post.author, parent, root, parent.author, root.author;",
         );
-
-        // let query = r#"SELECT post[*], post.record.createdAt as createdAt, reply.parent as parent, reply.root as root, reason OMIT post.id, parent.id, root.id FROM feed ORDER BY createdAt DESC FETCH post.author, parent, root, parent.author, root.author;"#;
         let mut result = self.db.query(query).await?;
         let value: Vec<FeedViewPostFlat> = result.take(0)?;
         Ok(value)
