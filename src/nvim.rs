@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::sql::Querier;
@@ -157,13 +156,54 @@ impl EventHandler {
         self.update_timeline(None).await?;
         self.update_feed(feed.clone()).await?;
         for (event, values) in receiver {
-            trace!("Received rpcevent: {:?}, values: {:?}", event, values);
+            info!("Received rpcevent: {:?}, values: {:?}", event, values);
             match Messages::from(event) {
                 Messages::Read => {
                     error!("Uninmplemented");
                 }
+                // TODO:
                 Messages::Post => {
-                    error!("Uninmplemented");
+                    if values.is_empty() {
+                        error!("post called with no content");
+                    } else {
+                        let mut result_string = String::new();
+
+                        for v in values {
+                            match v.as_array() {
+                                Some(data) => {
+                                    // Append the message and a newline to the result string
+                                    //result_string.push_str(message);
+                                    //result_string.push('\n');
+                                    for d in data {
+                                        match d.as_str() {
+                                            Some(s) => {
+                                                result_string.push_str(&s);
+                                                result_string.push('\n');
+                                            }
+                                            None => {
+                                                error!("Conversion called with no content");
+                                            }
+                                        }
+                                    }
+                                }
+                                None => {
+                                    // Handle error case here, if necessary
+                                    error!("Conversion called with no content");
+                                }
+                            }
+                        }
+                        info!(
+                            "publishing the following post to bluesky: \n{}",
+                            result_string
+                        );
+
+                        self.runner
+                            ._create_post(crate::commands::CreatePostArgs {
+                                text: result_string,
+                                images: vec![],
+                            })
+                            .await?;
+                    }
                 }
                 Messages::Update => {
                     // args: values[0] contains the first cid from that neovim sends

@@ -1,6 +1,6 @@
 use crate::commands::{
-    ActorArgs, Command, CreatePostArgs, GetAuthorFeedArgs, GetCidUriArgs, GetTimelineArgs,
-    ListNotificationsArgs, LoginArgs, UriArgs, UriArgsU16, UriListArgs,
+    ActorArgs, Command, CreatePostArgs, GetAuthorFeedArgs, GetCidDidArgs, GetCidUriArgs,
+    GetTimelineArgs, ListNotificationsArgs, LoginArgs, UriArgs, UriArgsU16, UriListArgs,
 };
 use crate::store::SimpleJsonFileSessionStore;
 use anyhow::{Context, Result};
@@ -345,6 +345,20 @@ impl Runner {
                     .actor
                     .or(self.handle.clone().map(AtIdentifier::Handle))
                     .with_context(|| "Not logged in")?,
+            })
+            .await?)
+    }
+
+    pub async fn _get_blob(&self, args: GetCidDidArgs) -> Result<Vec<u8>, anyhow::Error> {
+        Ok(self
+            .agent
+            .api
+            .com
+            .atproto
+            .sync
+            .get_blob(atrium_api::com::atproto::sync::get_blob::Parameters {
+                cid: args.cid,
+                did: args.did,
             })
             .await?)
     }

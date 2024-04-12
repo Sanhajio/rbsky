@@ -114,6 +114,7 @@ impl SurrealDB {
                 repostCount: {},
                 uri: {},
                 viewer: {},
+                embed: {},
         }};"#,
             cid.clone(),
             cid.clone(),
@@ -126,6 +127,7 @@ impl SurrealDB {
             serde_json::to_string(&post.repost_count)?,
             serde_json::to_string(&post.uri)?,
             serde_json::to_string(&post.viewer)?,
+            serde_json::to_string(&post.embed)?,
         );
         trace!("storing post: {}", sql);
         let _created = self.db.query(sql).await?;

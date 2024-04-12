@@ -3,7 +3,8 @@ use clap::Parser;
 use env_logger;
 use log::info;
 use rbsky::{commands::Command, runner::Runner};
-use std::fmt::Debug;
+use std::io::Write;
+use std::{fmt::Debug, os::unix::fs::FileExt};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
@@ -132,6 +133,13 @@ async fn main() -> Result<(), anyhow::Error> {
             if let Ok(d) = json {
                 println!("{}", d);
             }
+            Ok(())
+        }
+        Command::GetBlob(args) => {
+            let res = runner._get_blob(args).await?;
+            let file_path = "/tmp/file.jpeg";
+            let mut file = std::fs::File::create(file_path)?;
+            file.write_all(&res)?;
             Ok(())
         }
         Command::ListNotifications(args) => {

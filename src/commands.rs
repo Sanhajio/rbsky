@@ -32,6 +32,8 @@ pub enum Command {
     /// Get detailed info of a specified list.
     GetList(UriArgs),
     /// Get detailed profile view of an actor.
+    GetBlob(GetCidDidArgs),
+    /// Get a list of notifications.
     GetProfile(ActorArgs),
     /// Get a list of notifications.
     ListNotifications(ListNotificationsArgs),
@@ -76,6 +78,16 @@ pub struct GetAuthorFeedArgs {
     pub(crate) filter: Option<String>,
     #[arg(long, default_value_t = 10)]
     pub(crate) limit: u8,
+}
+
+#[derive(Parser, Debug)]
+pub struct GetCidDidArgs {
+    ///The CID of the blob to fetch
+    #[arg(short, long, value_parser)]
+    pub(crate) cid: atrium_api::types::string::Cid,
+    ///The DID of the account.
+    #[arg(long)]
+    pub(crate) did: atrium_api::types::string::Did,
 }
 
 #[derive(Parser, Debug)]
